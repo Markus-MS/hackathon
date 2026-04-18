@@ -68,6 +68,7 @@ You can also start the same app through the module entrypoint:
 
 - provider API keys
 - Docker image/network settings
+- max parallel solver runs, which defaults to `1` for test runs
 - the model profiles you want to run
 - CTFd URL and auth secret
 - one CTFd API token/account per model you want to run

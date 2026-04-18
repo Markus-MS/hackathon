@@ -22,5 +22,35 @@
     "output_per_million": 10.0,
     "cached_input_per_million": 0.125,
     "reasoning_per_million": 0.0
+  },
+  "openai:gpt-5-mini": {
+    "input_per_million": 0.25,
+    "output_per_million": 2.0,
+    "cached_input_per_million": 0.025,
+    "reasoning_per_million": 0.0
+  },
+  "openai:gpt-5-nano": {
+    "input_per_million": 0.05,
+    "output_per_million": 0.4,
+    "cached_input_per_million": 0.005,
+    "reasoning_per_million": 0.0
+  },
+  "openai:gpt-5.4": {
+    "input_per_million": 2.5,
+    "output_per_million": 15.0,
+    "cached_input_per_million": 0.25,
+    "reasoning_per_million": 0.0
+  },
+  "openai:gpt-5.4-mini": {
+    "input_per_million": 0.75,
+    "output_per_million": 4.5,
+    "cached_input_per_million": 0.075,
+    "reasoning_per_million": 0.0
+  },
+  "openai:gpt-5.4-nano": {
+    "input_per_million": 0.2,
+    "output_per_million": 1.25,
+    "cached_input_per_million": 0.02,
+    "reasoning_per_million": 0.0
   }
 }

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import sqlite3
 
 from ctfarena.db import get_setting, set_setting
@@ -15,6 +16,7 @@ SECRET_KEYS = {
 DEFAULT_SETTINGS = {
     "solver_image": "ctfarena-solver:local",
     "solver_network": "bridge",
+    "runner_max_parallel_runs": os.environ.get("CTF_ARENA_MAX_PARALLEL_RUNS", "1"),
     "solver_max_turns": "8",
     "solver_command_timeout_seconds": "20",
     "solver_llm_timeout_seconds": "90",
@@ -23,6 +25,15 @@ DEFAULT_SETTINGS = {
     "anthropic_api_key": "",
     "google_api_key": "",
     "deepseek_api_key": "",
+}
+
+NON_EMPTY_SETTINGS = {
+    "solver_image",
+    "solver_network",
+    "runner_max_parallel_runs",
+    "solver_max_turns",
+    "solver_command_timeout_seconds",
+    "solver_llm_timeout_seconds",
 }
 
 PROVIDER_KEY_SETTING = {
@@ -54,7 +65,22 @@ def update(values: dict[str, str]) -> None:
     for key in DEFAULT_SETTINGS:
         if key in SECRET_KEYS and values.get(key) == "__KEEP__":
             continue
-        set_setting(key, values.get(key, DEFAULT_SETTINGS[key]).strip())
+        value = values.get(key, DEFAULT_SETTINGS[key]).strip()
+        if key in NON_EMPTY_SETTINGS and not value:
+            value = DEFAULT_SETTINGS[key]
+        set_setting(key, value)
+
+
+def positive_int(key: str) -> int:
+    try:
+        value = get_setting(key, DEFAULT_SETTINGS[key]) or DEFAULT_SETTINGS[key]
+        return max(1, int(value))
+    except (TypeError, ValueError):
+        return max(1, int(DEFAULT_SETTINGS[key]))
+
+
+def max_parallel_runs() -> int:
+    return positive_int("runner_max_parallel_runs")
 
 
 def masked(value: str) -> str:

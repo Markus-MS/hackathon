@@ -77,6 +77,11 @@ def update_settings():
     values = {
         "solver_image": request.form.get("solver_image", "").strip(),
         "solver_network": request.form.get("solver_network", "").strip() or "bridge",
+        "runner_max_parallel_runs": request.form.get(
+            "runner_max_parallel_runs",
+            "",
+        ).strip()
+        or "1",
         "solver_max_turns": request.form.get("solver_max_turns", "").strip() or "8",
         "solver_command_timeout_seconds": request.form.get(
             "solver_command_timeout_seconds",
