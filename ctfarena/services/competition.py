@@ -2987,13 +2987,27 @@ def _verify_candidates(
             return "crashed", str(exc), attempts
         last_message = str(response.get("message") or response.get("status") or "")
         if response["correct"]:
+            response_status = str(response.get("status") or "").strip().lower()
+            already_solved = response_status == "already_solved"
             metric_count("ctfarena.challenge.solve", 1, tags={"challenge_id": str(challenge["id"])})
             _emit_activity(
                 on_event,
                 kind="status",
-                content=f"CTFd accepted a candidate on attempt {attempts}.",
+                content=(
+                    f"CTFd reports this challenge is already solved on attempt {attempts}."
+                    if already_solved
+                    else f"CTFd accepted a candidate on attempt {attempts}."
+                ),
             )
-            return "solved", f"Accepted candidate on attempt {attempts}.", attempts
+            return (
+                "solved",
+                (
+                    f"Already solved according to CTFd on attempt {attempts}."
+                    if already_solved
+                    else f"Accepted candidate on attempt {attempts}."
+                ),
+                attempts,
+            )
     _emit_activity(
         on_event,
         kind="warning",

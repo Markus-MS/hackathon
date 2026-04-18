@@ -23,15 +23,21 @@ class CTFdDownloadError(RuntimeError):
 
 
 FILE_LINK_RE = re.compile(r"""href=["']([^"'#?][^"']*)["']""", re.IGNORECASE)
+SOLVED_SUBMISSION_STATUSES = {"correct", "already_solved"}
+SOLVED_SUBMISSION_MESSAGES = {
+    "correct",
+    "already solved",
+    "you already solved this",
+}
 
 
 def _is_correct_submission_response(data: dict[str, object]) -> bool:
     status = str(data.get("status") or "").strip().lower()
     if status:
-        return status == "correct"
+        return status in SOLVED_SUBMISSION_STATUSES
 
     message = str(data.get("message") or "").strip().lower()
-    return message.strip(" .!:;") == "correct"
+    return message.strip(" .!:;") in SOLVED_SUBMISSION_MESSAGES
 
 
 @dataclass(slots=True)
