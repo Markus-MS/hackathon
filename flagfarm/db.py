@@ -113,6 +113,10 @@ def seed_reference_data() -> None:
         )
     db.commit()
 
+    from flagfarm.services import runtime_settings
+
+    runtime_settings.seed_defaults(db)
+
 
 def init_app(app: Flask) -> None:
     app.teardown_appcontext(close_db)

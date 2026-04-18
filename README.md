@@ -15,10 +15,12 @@ FlagFarm is a Flask MVP for running a weekly CTF evaluation across four LLMs und
   - weekly CTF creation
   - CTFd challenge sync
   - per-model CTF account provisioning
+  - provider API key and Docker runner configuration
+  - live run/challenge monitoring with recent events, costs, and errors
   - competition start control
 - Central pricing from one rate table in [flagfarm/data/model_rates.json](/root/hackathon/flagfarm/data/model_rates.json)
 - Optional Sentry wiring if `SENTRY_DSN` is set
-- A seeded demo flow so the app can be exercised immediately
+- Docker-isolated solver runs that verify candidate flags through CTFd before scoring
 
 ## Architecture
 
@@ -29,7 +31,7 @@ The app is intentionally split into small modules instead of a single `app.py`.
 - [flagfarm/schema.sql](/root/hackathon/flagfarm/schema.sql) defines the tables and the leaderboard view.
 - [flagfarm/services/ctf_service.py](/root/hackathon/flagfarm/services/ctf_service.py) handles weekly CTFs, challenges, models, and accounts.
 - [flagfarm/services/ctfd.py](/root/hackathon/flagfarm/services/ctfd.py) is the CTFd adapter.
-- [flagfarm/services/competition.py](/root/hackathon/flagfarm/services/competition.py) owns run creation and the four-model in-process runner.
+- [flagfarm/services/competition.py](/root/hackathon/flagfarm/services/competition.py) owns run creation and the Docker-backed four-model runner.
 - [flagfarm/services/leaderboard.py](/root/hackathon/flagfarm/services/leaderboard.py) builds the ranked table and public matrix.
 - [flagfarm/telemetry.py](/root/hackathon/flagfarm/telemetry.py) centralizes optional Sentry setup and basic scrubbing.
 
@@ -37,10 +39,10 @@ The app is intentionally split into small modules instead of a single `app.py`.
 
 The Python entrypoints use `uv` inline script metadata, per repo instructions.
 
-1. Seed demo data:
+1. Build the local solver image:
 
 ```sh
-./seed_demo.py
+./build_solver_image.sh
 ```
 
 2. Start the app:
@@ -50,6 +52,16 @@ The Python entrypoints use `uv` inline script metadata, per repo instructions.
 ```
 
 3. Open `http://127.0.0.1:5000`
+
+4. In `Admin`, configure:
+
+- provider API keys
+- Docker image/network settings
+- the four model profiles
+- CTFd URL and auth secret
+- one account per model
+
+Then sync challenges and start the competition.
 
 Admin defaults:
 
@@ -66,7 +78,8 @@ Override them with:
 ## Notes
 
 - The bundled rate card is meant to be the single source of truth for cost calculations in this MVP. Update it before relying on production cost numbers.
-- The current runner uses a simulated backend so the platform, scoreboard, budgets, and observability shape can be exercised without live model-provider credentials.
+- There is no simulated scoring path. A challenge is marked solved only after a Docker-isolated solver proposes a candidate flag and CTFd accepts that submission.
+- The default solver image is `flagfarm-solver:local`; change it in the admin settings if you have a hardened CTF image with additional tools.
 
 ## Server Access
 

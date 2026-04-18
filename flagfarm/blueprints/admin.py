@@ -4,8 +4,10 @@ from flask import Blueprint, current_app, flash, redirect, render_template, requ
 
 from flagfarm.auth import admin_required, is_admin_authenticated, login_admin, logout_admin
 from flagfarm.db import get_db
-from flagfarm.services import ctf_service
+from flagfarm.services import ctf_service, runtime_settings
+from flagfarm.services.competition import list_run_monitor
 from flagfarm.services.ctfd import CTFdClient, CTFdSyncError
+from flagfarm.utils import utc_now
 
 
 bp = Blueprint("admin", __name__, url_prefix="/admin")
@@ -42,14 +44,89 @@ def dashboard():
         ctf["id"]: ctf_service.list_ctf_accounts(db, ctf["id"])
         for ctf in ctfs
     }
+    run_monitor = {
+        ctf["id"]: list_run_monitor(db, ctf["id"])
+        for ctf in ctfs
+    }
+    settings = runtime_settings.get_all()
+    masked_settings = {
+        key: runtime_settings.masked(value)
+        for key, value in settings.items()
+        if key in runtime_settings.SECRET_KEYS
+    }
     return render_template(
         "admin/dashboard.html",
         ctfs=ctfs,
         models=models,
         account_map=account_map,
+        run_monitor=run_monitor,
+        runtime_settings=settings,
+        masked_settings=masked_settings,
         active_ctf=ctf_service.get_active_ctf(db),
         admin_logged_in=is_admin_authenticated(),
     )
+
+
+@bp.post("/settings")
+@admin_required
+def update_settings():
+    values = {
+        "solver_image": request.form.get("solver_image", "").strip(),
+        "solver_network": request.form.get("solver_network", "").strip() or "bridge",
+        "solver_max_turns": request.form.get("solver_max_turns", "").strip() or "8",
+        "solver_command_timeout_seconds": request.form.get(
+            "solver_command_timeout_seconds",
+            "",
+        ).strip()
+        or "20",
+        "solver_llm_timeout_seconds": request.form.get("solver_llm_timeout_seconds", "").strip()
+        or "90",
+        "solver_extra_env": request.form.get("solver_extra_env", "").strip(),
+    }
+    for key in runtime_settings.SECRET_KEYS:
+        posted = request.form.get(key, "")
+        values[key] = posted.strip() if posted.strip() else "__KEEP__"
+    runtime_settings.update(values)
+    flash("Runtime settings saved.", "success")
+    return redirect(url_for("admin.dashboard"))
+
+
+@bp.post("/models/<int:model_id>")
+@admin_required
+def update_model(model_id: int):
+    db = get_db()
+    updated_at = utc_now()
+    db.execute(
+        """
+        UPDATE model_profiles
+        SET
+            display_name = ?,
+            provider = ?,
+            model_name = ?,
+            rate_key = ?,
+            color = ?,
+            reasoning_effort = ?,
+            temperature = ?,
+            enabled = ?,
+            updated_at = ?
+        WHERE id = ?
+        """,
+        (
+            request.form.get("display_name", "").strip(),
+            request.form.get("provider", "").strip(),
+            request.form.get("model_name", "").strip(),
+            request.form.get("rate_key", "").strip(),
+            request.form.get("color", "").strip() or "#0b7285",
+            request.form.get("reasoning_effort", "").strip() or "high",
+            request.form.get("temperature", type=float) or 0.2,
+            1 if request.form.get("enabled") == "1" else 0,
+            updated_at,
+            model_id,
+        ),
+    )
+    db.commit()
+    flash("Model profile saved.", "success")
+    return redirect(url_for("admin.dashboard"))
 
 
 @bp.post("/ctfs")

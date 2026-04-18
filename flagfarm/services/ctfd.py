@@ -11,6 +11,10 @@ class CTFdSyncError(RuntimeError):
     pass
 
 
+class CTFdSubmitError(RuntimeError):
+    pass
+
+
 @dataclass(slots=True)
 class CTFdClient:
     base_url: str
@@ -61,3 +65,27 @@ class CTFdClient:
                 }
             )
         return challenges
+
+    def submit_flag(self, *, challenge_id: str, submission: str) -> dict[str, object]:
+        session = self._build_session()
+        response = session.post(
+            f"{self.base_url.rstrip('/')}/api/v1/challenges/attempt",
+            json={"challenge_id": int(challenge_id), "submission": submission},
+            timeout=self.timeout,
+        )
+        if not response.ok:
+            raise CTFdSubmitError(
+                f"CTFd submission failed with {response.status_code}: {response.text[:200]}"
+            )
+        payload = response.json()
+        data = payload.get("data")
+        if not isinstance(data, dict):
+            raise CTFdSubmitError("Unexpected CTFd submission response shape.")
+
+        status = str(data.get("status") or "").lower()
+        message = str(data.get("message") or "")
+        return {
+            "correct": status == "correct" or "correct" in message.lower(),
+            "status": status,
+            "message": message,
+        }

@@ -12,10 +12,6 @@ Operate within the published per-challenge budget and do not assume human hints.
 """
 
 
-def _truthy(name: str, default: str = "1") -> bool:
-    return os.environ.get(name, default).lower() not in {"0", "false", "no"}
-
-
 class Config:
     BASE_DIR = Path(__file__).resolve().parent.parent
     INSTANCE_PATH = BASE_DIR / "instance"
@@ -48,7 +44,6 @@ class Config:
 
     RUNNER_MAX_WORKERS = int(os.environ.get("FLAGFARM_RUNNER_MAX_WORKERS", "4"))
     REQUEST_TIMEOUT_SECONDS = int(os.environ.get("FLAGFARM_REQUEST_TIMEOUT", "15"))
-    SIMULATE_SOLVER = _truthy("FLAGFARM_SIMULATE_SOLVER", "1")
 
     SENTRY_DSN = os.environ.get("SENTRY_DSN", "")
     SENTRY_ENVIRONMENT = os.environ.get("SENTRY_ENVIRONMENT", "dev")

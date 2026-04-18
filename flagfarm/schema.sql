@@ -6,6 +6,16 @@ CREATE TABLE IF NOT EXISTS settings (
     value TEXT NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS run_events (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    competition_run_id INTEGER REFERENCES competition_runs(id) ON DELETE CASCADE,
+    challenge_run_id INTEGER REFERENCES challenge_runs(id) ON DELETE CASCADE,
+    level TEXT NOT NULL DEFAULT 'info',
+    message TEXT NOT NULL,
+    details_json TEXT NOT NULL DEFAULT '{}',
+    created_at TEXT NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS model_profiles (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     slug TEXT NOT NULL UNIQUE,
