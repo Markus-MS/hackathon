@@ -36,6 +36,61 @@ main {
   margin: 0 auto;
 }
 
+.top-header {
+  margin-bottom: 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.96);
+}
+
+.top-header-inner {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+}
+
+.plain-brand {
+  font-family: "Montserrat", "Roboto", sans-serif;
+  font-size: 1rem;
+  font-weight: 700;
+}
+
+.ctf-nav-buttons {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  justify-content: flex-start;
+  margin-left: 20px;
+}
+
+.ctf-switch-btn {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.38rem 0.7rem;
+  border: 0.8px solid #7ea0d8;
+  border-radius: 10px;
+  background: transparent;
+  color: #5b7db8;
+  font-size: 0.78rem;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.ctf-switch-btn:hover {
+  border-color: #9ab7e3;
+  color: #7a97c7;
+  background: rgba(154, 183, 227, 0.12);
+}
+
+.ctf-switch-btn.is-active {
+  border-color: #5b7db8;
+  background: transparent;
+  color: #5b7db8;
+  box-shadow: inset 0 0 0 0.8px #5b7db8;
+}
+
 a {
   color: inherit;
   text-decoration: none;
@@ -227,7 +282,7 @@ h1 {
   font-size: clamp(1.3rem, 2.2vw, 1.8rem);
   line-height: 1.05;
   letter-spacing: -0.02em;
-  max-width: 14ch;
+  #max-width: 14ch;
 }
 
 h2,
@@ -285,10 +340,16 @@ h4 {
   color: var(--muted);
 }
 
+.summary-tile span {
+  display: block;
+  text-align: center;
+}
+
 .summary-tile strong {
   display: block;
   margin-top: 6px;
   font-size: 1.45rem;
+  text-align: center;
 }
 
 .mini-chart {
@@ -330,12 +391,12 @@ h4 {
 
 .matrix-card table {
   width: 100%;
-  min-width: 900px;
+  min-width: 820px;
   border-collapse: collapse;
 }
 
 .matrix-card thead th {
-  padding: 6px 4px;
+  padding: 4px 2px;
   border-bottom: 1px solid var(--border);
   color: var(--muted);
   font-size: 0.83rem;
@@ -343,7 +404,7 @@ h4 {
   letter-spacing: 0.04em;
   text-transform: uppercase;
   text-align: center;
-  background: rgba(239, 234, 224, 0.78);
+  background: transparent;
   height: 136px;
   vertical-align: bottom;
 }
@@ -361,8 +422,8 @@ h4 {
 
 .matrix-challenge-label {
   display: inline-block;
-  width: 98px;
-  max-width: 98px;
+  width: 84px;
+  max-width: 84px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -371,25 +432,96 @@ h4 {
   transform-origin: left bottom;
 }
 
-.matrix-card thead th:first-child,
+.matrix-card thead th:nth-child(2) .matrix-challenge-label {
+  margin-left: 10px;
+}
+
+.matrix-model-head-rot {
+  display: inline-block;
+  width: 52px;
+  max-width: 52px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-align: left;
+  transform: rotate(-45deg);
+  transform-origin: left bottom;
+}
+
+.matrix-card thead th:first-child {
+  text-align: left;
+  background: transparent;
+  min-width: 148px;
+  width: 148px;
+  max-width: 148px;
+  padding-left: 10px;
+}
+
 .matrix-card tbody th {
-  position: sticky;
-  left: 0;
-  z-index: 1;
   text-align: left;
   background: rgba(255, 255, 255, 0.95);
+  min-width: 148px;
+  width: 148px;
+  max-width: 148px;
+  overflow: visible;
+  padding-left: 10px;
+  white-space: nowrap;
+}
+
+.model-label-inline {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+}
+
+.model-name-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.model-product-icon {
+  display: inline-grid;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  border-radius: 999px;
+  font-size: 0.58rem;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  flex: 0 0 auto;
+}
+
+.model-product-icon.product-codex,
+.model-product-icon.product-openai {
+  background: rgba(52, 120, 246, 0.16);
+  color: #1f4ea7;
+  border: 1px solid rgba(52, 120, 246, 0.42);
+}
+
+.model-product-icon.product-anthropic {
+  background: rgba(199, 98, 38, 0.14);
+  color: #8e4a1f;
+  border: 1px solid rgba(199, 98, 38, 0.4);
+}
+
+.model-product-icon.product-google {
+  background: rgba(34, 139, 87, 0.14);
+  color: #1f7a4e;
+  border: 1px solid rgba(34, 139, 87, 0.38);
+}
+
+.model-product-icon.product-default {
+  background: rgba(17, 24, 39, 0.08);
+  color: #4b5563;
+  border: 1px solid rgba(17, 24, 39, 0.2);
 }
 
 .matrix-card tbody th,
 .matrix-card tbody td {
-  padding: 6px 5px;
+  padding: 5px 3px;
   border-bottom: 1px solid rgba(17, 19, 24, 0.06);
-}
-
-.matrix-card tbody th {
-  min-width: 104px;
-  font-size: 0.9rem;
-  font-weight: 600;
 }
 
 .matrix-card tbody tr:last-child th,
@@ -1171,6 +1303,11 @@ h4 {
   .nav-title {
     max-width: 68vw;
     font-size: 1rem;
+  }
+
+  .top-header-inner {
+    flex-direction: column;
+    align-items: flex-start;
   }
 
   .hero {
