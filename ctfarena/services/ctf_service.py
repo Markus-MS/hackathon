@@ -180,6 +180,16 @@ def activate_ctf(db: sqlite3.Connection, ctf_id: int) -> None:
     set_setting("active_ctf_id", str(ctf_id))
 
 
+def delete_ctf(db: sqlite3.Connection, ctf_id: int):
+    ctf = get_ctf(db, ctf_id)
+    if ctf is None:
+        return None
+    
+    db.execute("DELETE FROM ctf_events WHERE id = ?", (ctf_id,))
+    db.commit()
+    return ctf
+
+
 def list_ctf_accounts(db: sqlite3.Connection, ctf_id: int):
     return db.execute(
         """
