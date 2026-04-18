@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import concurrent.futures
 import json
+import logging
 import os
 import re
 import subprocess
@@ -11,6 +12,8 @@ import time
 import uuid
 from dataclasses import dataclass
 from pathlib import Path
+
+logger = logging.getLogger(__name__)
 
 from flask import Flask, current_app
 
@@ -1776,11 +1779,21 @@ class OpencodeSolverBackend:
         flag_regex = ctf["flag_regex"]
         prompt = self._build_prompt(ctf, challenge, account, flag_regex)
 
+        logger.info(
+            "[opencode] Starting solver — challenge=%r model=%s timeout=%ds max_turns=%s llm_timeout=%s",
+            challenge["name"],
+            opencode_model,
+            timeout_seconds,
+            settings.get("solver_max_turns"),
+            settings.get("solver_llm_timeout_seconds"),
+        )
+
         with tempfile.TemporaryDirectory(prefix="ctfarena-opencode-") as tmp:
             tmp_path = Path(tmp)
 
             # Give opencode context about the challenge via AGENTS.md
             (tmp_path / "AGENTS.md").write_text(prompt, encoding="utf-8")
+            logger.debug("[opencode] Wrote AGENTS.md to %s (%d bytes)", tmp_path, len(prompt))
 
             env = os.environ.copy()
 
@@ -1788,12 +1801,17 @@ class OpencodeSolverBackend:
             env_key_name = OPENCODE_PROVIDER_ENV.get(model["provider"].lower())
             if env_key_name:
                 env[env_key_name] = api_key
+                logger.debug("[opencode] Injected API key as %s", env_key_name)
+            else:
+                logger.warning("[opencode] No env-var mapping for provider %r — API key NOT injected", model["provider"])
 
             # Override opencode dirs if configured
             if settings.get("opencode_config_dir"):
                 env["OPENCODE_CONFIG_DIR"] = settings["opencode_config_dir"]
+                logger.debug("[opencode] OPENCODE_CONFIG_DIR=%s", settings["opencode_config_dir"])
             if settings.get("opencode_data_dir"):
                 env["OPENCODE_DATA_DIR"] = settings["opencode_data_dir"]
+                logger.debug("[opencode] OPENCODE_DATA_DIR=%s", settings["opencode_data_dir"])
 
             # Extra CLI args from admin settings (e.g. "--thinking", "--share")
             extra_args: list[str] = []
@@ -1817,6 +1835,8 @@ class OpencodeSolverBackend:
                 f"Find the flag matching: {flag_regex}"
             )
 
+            logger.info("[opencode] Command: %s", " ".join(cmd))
+
             proc = subprocess.Popen(
                 cmd,
                 env=env,
@@ -1824,6 +1844,7 @@ class OpencodeSolverBackend:
                 stderr=subprocess.PIPE,
                 text=True,
             )
+            logger.info("[opencode] Process started pid=%d", proc.pid)
 
             # Drain output in background threads so pipes never block
             stdout_lines: list[str] = []
@@ -1837,7 +1858,10 @@ class OpencodeSolverBackend:
             def _drain_stderr() -> None:
                 assert proc.stderr is not None
                 for line in proc.stderr:
+                    stripped = line.rstrip()
                     stderr_lines.append(line)
+                    if stripped:
+                        logger.debug("[opencode][stderr] %s", stripped)
 
             t_out = threading.Thread(target=_drain_stdout, daemon=True)
             t_err = threading.Thread(target=_drain_stderr, daemon=True)
@@ -1846,23 +1870,54 @@ class OpencodeSolverBackend:
 
             deadline = time.monotonic() + timeout_seconds
             stop_reason: str | None = None
+            last_log_t = time.monotonic()
             while proc.poll() is None:
-                if time.monotonic() > deadline:
+                now_t = time.monotonic()
+                elapsed = now_t - (deadline - timeout_seconds)
+                if now_t > deadline:
+                    logger.warning(
+                        "[opencode] Wall-clock timeout after %.0fs — terminating pid=%d",
+                        elapsed,
+                        proc.pid,
+                    )
                     stop_reason = "wall_clock"
                     proc.terminate()
                     break
                 if stop_event is not None and stop_event.is_set():
+                    logger.info(
+                        "[opencode] Grace period expired after %.0fs — terminating pid=%d",
+                        elapsed,
+                        proc.pid,
+                    )
                     stop_reason = "grace_period"
                     proc.terminate()
                     break
+                if now_t - last_log_t >= 30:
+                    logger.info(
+                        "[opencode] Still running — elapsed=%.0fs remaining=%.0fs stdout_lines=%d stderr_lines=%d",
+                        elapsed,
+                        deadline - now_t,
+                        len(stdout_lines),
+                        len(stderr_lines),
+                    )
+                    last_log_t = now_t
                 time.sleep(2)
 
             t_out.join(timeout=15)
             t_err.join(timeout=15)
             proc.wait()
+            logger.info(
+                "[opencode] Process exited returncode=%d stdout_lines=%d stderr_lines=%d",
+                proc.returncode,
+                len(stdout_lines),
+                len(stderr_lines),
+            )
 
         stdout = "".join(stdout_lines)
         stderr = "".join(stderr_lines)
+
+        if stderr.strip():
+            logger.info("[opencode] Full stderr (%d chars):\n%s", len(stderr), stderr[-2000:])
 
         # Parse JSON event stream; collect flag candidates and token counts
         flag_candidates: list[str] = []
@@ -1872,6 +1927,7 @@ class OpencodeSolverBackend:
         cached_input_tokens = 0
         turns = 0
         first_error: str = ""
+        event_type_counts: dict[str, int] = {}
 
         for raw_line in stdout.splitlines():
             raw_line = raw_line.strip()
@@ -1880,10 +1936,12 @@ class OpencodeSolverBackend:
             try:
                 event = json.loads(raw_line)
             except json.JSONDecodeError:
+                logger.debug("[opencode][parse] Non-JSON line: %s", raw_line[:200])
                 # Raw text line — still scan it for flags
                 for m in re.finditer(flag_regex, raw_line):
                     flag = m.group(0)
                     if flag not in flag_candidates:
+                        logger.info("[opencode] Flag candidate found in raw line: %r", flag)
                         flag_candidates.append(flag)
                 continue
 
@@ -1892,22 +1950,37 @@ class OpencodeSolverBackend:
             for m in re.finditer(flag_regex, text):
                 flag = m.group(0)
                 if flag not in flag_candidates:
+                    logger.info("[opencode] Flag candidate found in event text: %r", flag)
                     flag_candidates.append(flag)
 
             etype = event.get("type", "")
+            event_type_counts[etype] = event_type_counts.get(etype, 0) + 1
 
             # Count assistant turns
             if etype in ("assistant", "message"):
                 turns += 1
+                logger.debug("[opencode] Turn %d (event type=%r)", turns, etype)
 
             # Accumulate token usage from any usage/metadata fields
             for usage_key in ("usage", "metadata", "tokens"):
                 usage = event.get(usage_key) or {}
-                if isinstance(usage, dict):
+                if isinstance(usage, dict) and usage:
+                    prev_in, prev_out = input_tokens, output_tokens
                     input_tokens += int(usage.get("input_tokens") or usage.get("prompt_tokens") or 0)
                     output_tokens += int(usage.get("output_tokens") or usage.get("completion_tokens") or 0)
                     reasoning_tokens += int(usage.get("reasoning_tokens") or 0)
                     cached_input_tokens += int(usage.get("cached_tokens") or usage.get("cache_read_input_tokens") or 0)
+                    if input_tokens != prev_in or output_tokens != prev_out:
+                        logger.debug(
+                            "[opencode] Token update from %r field: in=%d out=%d reasoning=%d cached=%d (totals: in=%d out=%d)",
+                            usage_key,
+                            input_tokens - prev_in,
+                            output_tokens - prev_out,
+                            reasoning_tokens,
+                            cached_input_tokens,
+                            input_tokens,
+                            output_tokens,
+                        )
 
             # Capture first error message
             if etype == "error" and not first_error:
@@ -1917,8 +1990,24 @@ class OpencodeSolverBackend:
                     or err_data.get("message")
                     or err_data
                 )
+                logger.warning("[opencode] Error event: %s", first_error[:500])
+
+        logger.info(
+            "[opencode] Parse complete — event_types=%s turns=%d flag_candidates=%d "
+            "tokens: in=%d out=%d reasoning=%d cached=%d stop_reason=%s returncode=%d",
+            dict(sorted(event_type_counts.items())),
+            turns,
+            len(flag_candidates),
+            input_tokens,
+            output_tokens,
+            reasoning_tokens,
+            cached_input_tokens,
+            stop_reason,
+            proc.returncode,
+        )
 
         if stop_reason == "wall_clock":
+            logger.warning("[opencode] Returning timed_out (wall_clock) for challenge=%r", challenge["name"])
             return SolverResult(
                 status="timed_out",
                 input_tokens=input_tokens,
@@ -1933,6 +2022,7 @@ class OpencodeSolverBackend:
                 error_message="opencode solver exceeded its wall-clock timeout.",
             )
         if stop_reason == "grace_period":
+            logger.info("[opencode] Returning timed_out (grace_period) for challenge=%r", challenge["name"])
             return SolverResult(
                 status="timed_out",
                 input_tokens=input_tokens,
@@ -1947,6 +2037,12 @@ class OpencodeSolverBackend:
                 error_message="Challenge stopped: another model solved it and the grace period expired.",
             )
         if proc.returncode != 0 and not flag_candidates:
+            logger.error(
+                "[opencode] Returning crashed for challenge=%r returncode=%d first_error=%r",
+                challenge["name"],
+                proc.returncode,
+                (first_error or (stderr or stdout)[-500:]),
+            )
             return SolverResult(
                 status="crashed",
                 input_tokens=input_tokens,
@@ -1961,8 +2057,15 @@ class OpencodeSolverBackend:
                 error_message=first_error or (stderr or stdout)[-4000:],
             )
 
+        final_status = "completed" if flag_candidates else "failed"
+        logger.info(
+            "[opencode] Returning %s for challenge=%r candidates=%s",
+            final_status,
+            challenge["name"],
+            flag_candidates,
+        )
         return SolverResult(
-            status="completed" if flag_candidates else "failed",
+            status=final_status,
             input_tokens=input_tokens,
             output_tokens=output_tokens,
             reasoning_tokens=reasoning_tokens,
@@ -2190,6 +2293,13 @@ class CompetitionManager:
                     (started_at, started_at, challenge_run_id),
                 )
                 db.commit()
+                logger.info(
+                    "[competition] challenge_run_id=%d challenge=%r model=%s — executing via %s",
+                    challenge_run_id,
+                    challenge["name"],
+                    model["display_name"],
+                    type(self.backend).__name__,
+                )
                 _log_event(
                     db,
                     competition_run_id=competition_run_id,
@@ -2208,6 +2318,20 @@ class CompetitionManager:
                         competition_run=competition_run,
                         stop_event=stop_event,
                     )
+                    logger.info(
+                        "[competition] challenge_run_id=%d challenge=%r backend result: "
+                        "status=%s turns=%d candidates=%d in=%d out=%d reasoning=%d cached=%d error=%r",
+                        challenge_run_id,
+                        challenge["name"],
+                        result.status,
+                        result.turns,
+                        len(result.flag_candidates),
+                        result.input_tokens,
+                        result.output_tokens,
+                        result.reasoning_tokens,
+                        result.cached_input_tokens,
+                        result.error_message[:200] if result.error_message else None,
+                    )
                     with start_span(
                         op="competition.cost",
                         name="competition.estimate_cost",
@@ -2220,6 +2344,12 @@ class CompetitionManager:
                             cached_input_tokens=result.cached_input_tokens,
                             reasoning_tokens=result.reasoning_tokens,
                         )
+                    logger.info(
+                        "[competition] challenge_run_id=%d cost_usd=%.6f rate_key=%s",
+                        challenge_run_id,
+                        cost_usd,
+                        model["rate_key"],
+                    )
                     budget_status, budget_error = _apply_budget(
                         competition_run,
                         result,
@@ -2246,6 +2376,13 @@ class CompetitionManager:
                             account,
                             result,
                         )
+                    logger.info(
+                        "[competition] challenge_run_id=%d final: status=%s flag_attempts=%d error=%r",
+                        challenge_run_id,
+                        final_status,
+                        flag_attempts,
+                        final_error[:200] if final_error else None,
+                    )
                     ended_at = utc_now()
                     db.execute(
                         """
@@ -2371,6 +2508,7 @@ class CompetitionManager:
             self.backend = OpencodeSolverBackend()
         else:
             self.backend = DockerSolverBackend()
+        logger.info("[competition] Using solver backend: %s", tool)
 
         with self.app.app_context():
             db = get_db()
@@ -2410,12 +2548,19 @@ class CompetitionManager:
                     "model": model,
                     "account": account,
                 }
+                logger.info(
+                    "[competition] run_id=%d model=%s challenges=%d backend=%s",
+                    run_id,
+                    model["display_name"],
+                    len(challenges),
+                    tool,
+                )
                 _log_event(
                     db,
                     competition_run_id=run_id,
                     level="info",
-                    message=f"Started Docker run for {model['display_name']}.",
-                    details={"challenge_count": len(challenges), "model": model["model_name"]},
+                    message=f"Started {tool} run for {model['display_name']}.",
+                    details={"challenge_count": len(challenges), "model": model["model_name"], "backend": tool},
                 )
                 metric_count("ctfarena.run.started", 1, tags={"provider": model["provider"]})
 

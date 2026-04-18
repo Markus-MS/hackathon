@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import os
 from pathlib import Path
 
@@ -27,7 +28,22 @@ def should_auto_resume_competitions() -> bool:
     return True
 
 
+def _configure_logging() -> None:
+    log_level_name = os.environ.get("CTF_ARENA_LOG_LEVEL", "INFO").upper()
+    log_level = getattr(logging, log_level_name, logging.INFO)
+    logging.basicConfig(
+        level=log_level,
+        format="%(asctime)s %(levelname)s %(name)s %(message)s",
+        datefmt="%Y-%m-%dT%H:%M:%S",
+    )
+    # Suppress noisy third-party loggers
+    logging.getLogger("werkzeug").setLevel(logging.WARNING)
+    logging.getLogger("urllib3").setLevel(logging.WARNING)
+
+
 def create_app(config_object: type[Config] = Config) -> Flask:
+    _configure_logging()
+
     from modules.frontend import frontend_bp
 
     app = Flask(__name__, instance_relative_config=False)
