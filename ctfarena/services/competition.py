@@ -3349,185 +3349,44 @@ class CompetitionManager:
                             cached_input_tokens=result.cached_input_tokens,
                             reasoning_tokens=result.reasoning_tokens,
                         )
-                        db.commit()
-                        logger.info(
-                            "[competition] challenge_run_id=%d challenge=%r model=%s — attempt %d/%d via %s",
-                            challenge_run_id,
-                            challenge["name"],
-                            model["display_name"],
-                            attempt_number,
-                            max_attempts,
-                            type(self.backend).__name__,
-                        )
-                        _log_event(
-                            db,
-                            competition_run_id=competition_run_id,
-                            challenge_run_id=challenge_run_id,
-                            level="info",
-                            message=(
-                                f"Started challenge {challenge['name']}."
-                                if attempt_number == 1
-                                else f"Retrying challenge {challenge['name']} (attempt {attempt_number}/{max_attempts})."
-                            ),
-                            details={
-                                "remote_id": challenge["remote_id"],
-                                "attempt": attempt_number,
-                                "max_attempts": max_attempts,
+                    db.commit()
+                    logger.info(
+                        "[competition] challenge_run_id=%d cost_usd=%.6f rate_key=%s",
+                        challenge_run_id,
+                        cost_usd,
+                        model["rate_key"],
+                    )
+                    final_status, final_error = _apply_budget(
+                        competition_run,
+                        result,
+                        cost_usd,
+                    )
+                    if final_status == "budget_exhausted":
+                        flag_attempts = 0
+                        capture_message(
+                            f"Budget exhausted for challenge {challenge['name']}",
+                            level="warning",
+                            tags={
+                                "competition_run_id": competition_run_id,
+                                "challenge_id": challenge["id"],
+                                "provider": model["provider"],
                             },
+                            context={"cost_usd": cost_usd, "debug_mode": debug_mode},
                         )
-
-                        retry_hint = "" if attempt_number == 1 else _retry_hint_from_result(result)
-                        result = self.backend.execute(
-                            ctf=ctf,
-                            model=model,
-                            challenge=challenge,
-                            account=account,
-                            competition_run=competition_run,
-                            stop_event=stop_event,
-                            attempt_number=attempt_number,
-                            retry_hint=retry_hint,
-                        )
-                        transcript_parts.append(
-                            f"=== Attempt {attempt_number}/{max_attempts} ===\n{result.transcript_excerpt}"
-                        )
-                        total_input_tokens += result.input_tokens
-                        total_output_tokens += result.output_tokens
-                        total_reasoning_tokens += result.reasoning_tokens
-                        total_cached_input_tokens += result.cached_input_tokens
-                        total_turns += result.turns
-                        total_flag_attempts += result.flag_attempts
-                        if result.solve_time_seconds is not None:
-                            total_solve_time_seconds += result.solve_time_seconds
-                        final_candidates = result.flag_candidates
-
-                        aggregate_result = SolverResult(
-                            status=result.status,
-                            input_tokens=total_input_tokens,
-                            output_tokens=total_output_tokens,
-                            reasoning_tokens=total_reasoning_tokens,
-                            cached_input_tokens=total_cached_input_tokens,
-                            flag_attempts=total_flag_attempts,
-                            turns=total_turns,
-                            solve_time_seconds=(
-                                total_solve_time_seconds if total_solve_time_seconds > 0 else None
-                            ),
-                            transcript_excerpt="\n\n".join(transcript_parts)[-12000:],
-                            flag_candidates=result.flag_candidates,
-                            error_message=result.error_message,
-                        )
-                        logger.info(
-                            "[competition] challenge_run_id=%d challenge=%r backend result: "
-                            "attempt=%d/%d status=%s turns=%d candidates=%d in=%d out=%d reasoning=%d cached=%d error=%r",
-                            challenge_run_id,
-                            challenge["name"],
-                            attempt_number,
-                            max_attempts,
-                            result.status,
-                            result.turns,
-                            len(result.flag_candidates),
-                            result.input_tokens,
-                            result.output_tokens,
-                            result.reasoning_tokens,
-                            result.cached_input_tokens,
-                            result.error_message[:200] if result.error_message else None,
-                        )
-
-                        with start_span(
-                            op="competition.cost",
-                            name="competition.estimate_cost",
-                            attributes={"rate_key": model["rate_key"], "challenge_id": challenge["id"]},
-                        ):
-                            attempt_cost_usd = pricing.estimate_cost(
-                                model["rate_key"],
-                                input_tokens=result.input_tokens,
-                                output_tokens=result.output_tokens,
-                                cached_input_tokens=result.cached_input_tokens,
-                                reasoning_tokens=result.reasoning_tokens,
-                            )
-                        total_cost_usd += attempt_cost_usd
-                        logger.info(
-                            "[competition] challenge_run_id=%d attempt=%d/%d cost_usd=%.6f rate_key=%s",
-                            challenge_run_id,
-                            attempt_number,
-                            max_attempts,
-                            attempt_cost_usd,
-                            model["rate_key"],
-                        )
-
-                        budget_status, budget_error = _apply_budget(
-                            competition_run,
-                            aggregate_result,
-                            total_cost_usd,
-                        )
-                        if budget_status == "budget_exhausted":
-                            final_status = budget_status
-                            final_error = budget_error
-                            capture_message(
-                                f"Budget exhausted for challenge {challenge['name']}",
-                                level="warning",
-                                tags={
-                                    "competition_run_id": competition_run_id,
-                                    "challenge_id": challenge["id"],
-                                    "provider": model["provider"],
-                                },
-                                context={"cost_usd": total_cost_usd, "debug_mode": debug_mode},
-                            )
-                            break
-
-                        final_status, final_error, attempt_flag_attempts = _verify_candidates(
+                    else:
+                        final_status, final_error, flag_attempts = _verify_candidates(
                             ctf,
                             challenge,
                             account,
                             result,
                         )
-                        total_flag_attempts += attempt_flag_attempts
-                        logger.info(
-                            "[competition] challenge_run_id=%d attempt=%d/%d final=%s flag_attempts=%d error=%r",
-                            challenge_run_id,
-                            attempt_number,
-                            max_attempts,
-                            final_status,
-                            attempt_flag_attempts,
-                            final_error[:200] if final_error else None,
-                        )
-
-                        should_retry = (
-                            final_status == "failed"
-                            and attempt_flag_attempts == 0
-                            and not result.flag_candidates
-                            and attempt_number < max_attempts
-                            and not stop_event.is_set()
-                        )
-                        if should_retry:
-                            retry_hint = _retry_hint_from_result(result)
-                            _log_event(
-                                db,
-                                competition_run_id=competition_run_id,
-                                challenge_run_id=challenge_run_id,
-                                level="info",
-                                message=(
-                                    f"Attempt {attempt_number} produced no flag candidates; retrying."
-                                ),
-                                details={
-                                    "attempt": attempt_number,
-                                    "next_attempt": attempt_number + 1,
-                                    "max_attempts": max_attempts,
-                                    "retry_hint": retry_hint,
-                                },
-                            )
-                            continue
-                        break
-
-                    if (
-                        final_status == "failed"
-                        and total_flag_attempts == 0
-                        and not final_candidates
-                        and max_attempts > 1
-                    ):
-                        final_error = (
-                            f"Docker solver produced no flag candidates after {min(max_attempts, max(1, attempt_number))} attempts."
-                        )
-
+                    logger.info(
+                        "[competition] challenge_run_id=%d final: status=%s flag_attempts=%d error=%r",
+                        challenge_run_id,
+                        final_status,
+                        flag_attempts,
+                        final_error[:200] if final_error else None,
+                    )
                     ended_at = utc_now()
                     db.execute(
                         """
@@ -3551,15 +3410,15 @@ class CompetitionManager:
                         (
                             final_status,
                             ended_at,
-                            total_input_tokens,
-                            total_output_tokens,
-                            total_reasoning_tokens,
-                            total_cached_input_tokens,
-                            total_cost_usd,
-                            total_flag_attempts,
-                            total_turns,
-                            total_solve_time_seconds if final_status == "solved" and total_solve_time_seconds > 0 else None,
-                            "\n\n".join(transcript_parts)[-12000:],
+                            result.input_tokens,
+                            result.output_tokens,
+                            result.reasoning_tokens,
+                            result.cached_input_tokens,
+                            cost_usd,
+                            flag_attempts,
+                            result.turns,
+                            result.solve_time_seconds if final_status == "solved" else None,
+                            result.transcript_excerpt,
                             final_error,
                             ended_at,
                             challenge_run_id,
@@ -3577,13 +3436,13 @@ class CompetitionManager:
                     )
                     metric_distribution(
                         "ctfarena.challenge.cost_usd",
-                        total_cost_usd,
+                        cost_usd,
                         tags={"status": final_status, "provider": model["provider"]},
                     )
-                    if total_solve_time_seconds > 0:
+                    if result.solve_time_seconds:
                         metric_distribution(
                             "ctfarena.challenge.solve_time_seconds",
-                            total_solve_time_seconds,
+                            result.solve_time_seconds,
                             tags={"status": final_status, "provider": model["provider"]},
                         )
                     _log_event(
@@ -3594,9 +3453,9 @@ class CompetitionManager:
                         message=f"Challenge {challenge['name']} ended as {final_status}.",
                         details={
                             "remote_id": challenge["remote_id"],
-                            "candidate_count": len(final_candidates),
-                            "flag_attempts": total_flag_attempts,
-                            "cost_usd": total_cost_usd,
+                            "candidate_count": len(result.flag_candidates),
+                            "flag_attempts": flag_attempts,
+                            "cost_usd": cost_usd,
                             "error": final_error,
                             "attempts_used": db.execute(
                                 "SELECT attempt_index FROM challenge_runs WHERE id = ?",
