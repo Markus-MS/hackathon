@@ -31,7 +31,7 @@ def login():
 def logout():
     logout_admin()
     flash("Admin session closed.", "success")
-    return redirect(url_for("public.index"))
+    return redirect(url_for("frontend.index"))
 
 
 @bp.route("/")

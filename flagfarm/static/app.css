@@ -1,16 +1,17 @@
 :root {
-  --bg: #f1efe7;
+  --bg: #f3f4f7;
+  --bg-accent: #dde3ec;
   --panel: rgba(255, 255, 255, 0.82);
   --panel-strong: rgba(255, 255, 255, 0.94);
-  --ink: #132238;
-  --muted: #5f6d80;
-  --accent: #0b7285;
-  --accent-2: #ef8354;
-  --line: rgba(19, 34, 56, 0.12);
-  --shadow: 0 24px 80px rgba(19, 34, 56, 0.12);
-  --solved: #d9f7e7;
-  --running: #fff1c2;
-  --failed: #ffd8d8;
+  --ink: #111318;
+  --muted: #6d7480;
+  --accent: #111318;
+  --accent-2: #636b75;
+  --line: rgba(17, 19, 24, 0.08);
+  --shadow: 0 24px 80px rgba(19, 28, 45, 0.12);
+  --solved: rgba(52, 199, 89, 0.16);
+  --running: rgba(255, 159, 10, 0.18);
+  --failed: rgba(255, 69, 58, 0.16);
   --queued: #e8edf4;
 }
 
@@ -20,12 +21,12 @@
 
 body {
   margin: 0;
-  font-family: "IBM Plex Sans", "Avenir Next", "Segoe UI", sans-serif;
+  font-family: "SF Pro Display", "Segoe UI", Helvetica, Arial, sans-serif;
   color: var(--ink);
   background:
-    radial-gradient(circle at top left, rgba(239, 131, 84, 0.18), transparent 32%),
-    radial-gradient(circle at top right, rgba(11, 114, 133, 0.2), transparent 28%),
-    linear-gradient(180deg, #faf7ef 0%, #ece7dd 100%);
+    radial-gradient(circle at top left, rgba(120, 146, 186, 0.22), transparent 28%),
+    radial-gradient(circle at top right, rgba(255, 255, 255, 0.9), transparent 22%),
+    linear-gradient(180deg, var(--bg), var(--bg-accent));
   min-height: 100vh;
 }
 
@@ -51,7 +52,7 @@ button,
   border: 0;
   border-radius: 999px;
   padding: 0.8rem 1.25rem;
-  background: linear-gradient(135deg, var(--accent), #084c61);
+  background: linear-gradient(135deg, #111318, #636b75);
   color: white;
   cursor: pointer;
 }
@@ -96,10 +97,11 @@ button,
   place-items: center;
   width: 2.6rem;
   height: 2.6rem;
-  border-radius: 0.8rem;
-  background: linear-gradient(135deg, var(--accent-2), var(--accent));
+  border-radius: 999px;
+  background: linear-gradient(135deg, #111318, #636b75);
   color: white;
   font-weight: 700;
+  box-shadow: 0 0 0 6px rgba(17, 19, 24, 0.04);
 }
 
 .site-nav {
@@ -119,10 +121,10 @@ button,
 
 .hero-card,
 .panel {
-  background: var(--panel);
-  backdrop-filter: blur(18px);
   border: 1px solid rgba(255, 255, 255, 0.75);
-  border-radius: 1.5rem;
+  border-radius: 24px;
+  background: linear-gradient(180deg, var(--panel-strong), var(--panel));
+  backdrop-filter: blur(22px);
   box-shadow: var(--shadow);
 }
 
@@ -141,8 +143,10 @@ button,
 .panel h2,
 .panel h1 {
   margin: 0.25rem 0 0.75rem;
-  font-family: "Space Grotesk", "IBM Plex Sans", sans-serif;
+  font-family: "SF Pro Display", "Segoe UI", Helvetica, Arial, sans-serif;
   font-size: clamp(1.8rem, 2.5vw, 3rem);
+  letter-spacing: -0.05em;
+  line-height: 0.96;
 }
 
 .panel {
@@ -163,9 +167,9 @@ button,
 .eyebrow {
   margin: 0;
   text-transform: uppercase;
-  letter-spacing: 0.16em;
+  letter-spacing: 0.12em;
   font-size: 0.72rem;
-  color: var(--accent);
+  color: var(--muted);
   font-weight: 700;
 }
 
@@ -174,8 +178,8 @@ button,
   display: grid;
   gap: 0.9rem;
   padding: 1.1rem;
-  border-radius: 1.1rem;
-  background: var(--panel-strong);
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.74);
   border: 1px solid var(--line);
   align-self: start;
 }
@@ -200,8 +204,8 @@ button,
 
 .stat-card {
   padding: 1.15rem 1.25rem;
-  border-radius: 1.2rem;
-  background: var(--panel-strong);
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.74);
   border: 1px solid var(--line);
 }
 
@@ -215,7 +219,7 @@ button,
   display: block;
   margin-top: 0.3rem;
   font-size: 1.6rem;
-  font-family: "Space Grotesk", "IBM Plex Sans", sans-serif;
+  font-family: "SF Pro Display", "Segoe UI", Helvetica, Arial, sans-serif;
 }
 
 .panel-head {
@@ -287,7 +291,7 @@ button,
   gap: 0.35rem;
   min-width: 140px;
   padding: 0.7rem 0.8rem;
-  border-radius: 1rem;
+  border-radius: 18px;
   border: 1px solid transparent;
 }
 
@@ -339,8 +343,8 @@ button,
 .ctf-admin-card {
   display: block;
   padding: 1rem 1.1rem;
-  border-radius: 1.15rem;
-  background: var(--panel-strong);
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.74);
   border: 1px solid var(--line);
 }
 
@@ -358,7 +362,7 @@ button,
 
 .flash {
   padding: 0.9rem 1rem;
-  border-radius: 1rem;
+  border-radius: 18px;
   border: 1px solid var(--line);
 }
 
@@ -396,7 +400,7 @@ button,
   width: 100%;
   padding: 0.82rem 0.95rem;
   border: 1px solid var(--line);
-  border-radius: 1rem;
+  border-radius: 18px;
   background: white;
   color: var(--ink);
 }
@@ -424,7 +428,7 @@ button,
 .ctf-admin-head h3,
 .account-form h4 {
   margin: 0;
-  font-family: "Space Grotesk", "IBM Plex Sans", sans-serif;
+  font-family: "SF Pro Display", "Segoe UI", Helvetica, Arial, sans-serif;
 }
 
 .ctf-admin-head p {
@@ -448,9 +452,9 @@ button,
 .account-form,
 .model-admin-form {
   padding: 1rem;
-  border-radius: 1rem;
+  border-radius: 18px;
   border: 1px solid var(--line);
-  background: white;
+  background: rgba(255, 255, 255, 0.74);
 }
 
 .model-admin-grid {
@@ -478,13 +482,13 @@ button,
 
 .run-monitor h4 {
   margin: 0;
-  font-family: "Space Grotesk", "IBM Plex Sans", sans-serif;
+  font-family: "SF Pro Display", "Segoe UI", Helvetica, Arial, sans-serif;
 }
 
 .run-card {
   border: 1px solid var(--line);
-  border-radius: 1rem;
-  background: white;
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.74);
   padding: 0.9rem;
 }
 
@@ -517,7 +521,7 @@ button,
   margin: 0;
   padding: 0.55rem 0.65rem;
   border: 1px solid var(--line);
-  border-radius: 0.75rem;
+  border-radius: 14px;
   background: var(--queued);
   color: var(--muted);
 }

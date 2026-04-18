@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>CTF Autosolver</title>
+  <title>FlagFarm</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
@@ -20,6 +20,7 @@
       --green: #34c759;
       --orange: #ff9f0a;
       --gray: #cfd4dc;
+      --red: #ff453a;
     }
 
     * {
@@ -40,6 +41,11 @@
       margin: 0 auto;
     }
 
+    a {
+      color: inherit;
+      text-decoration: none;
+    }
+
     .shell {
       border: 1px solid rgba(255, 255, 255, 0.7);
       border-radius: 5px;
@@ -58,16 +64,24 @@
       background: rgba(255, 255, 255, 0.72);
       position: sticky;
       top: 0;
+      z-index: 3;
       backdrop-filter: blur(14px);
     }
 
-    .brand {
-      display: flex;
+    .brand,
+    .nav-links,
+    .playing-now,
+    .legend-item,
+    .model-label,
+    .score-line {
+      display: inline-flex;
       align-items: center;
+    }
+
+    .brand {
       gap: 8px;
       font-size: 0.9rem;
       font-weight: 600;
-      letter-spacing: -0.02em;
     }
 
     .brand-mark {
@@ -77,18 +91,26 @@
       background: linear-gradient(135deg, #111318, #636b75);
     }
 
+    .nav-links {
+      gap: 10px;
+      flex-wrap: wrap;
+      justify-content: flex-end;
+    }
+
+    .nav-link,
     .playing-now {
-      display: inline-flex;
-      align-items: center;
-      gap: 8px;
       padding: 7px 12px;
       border-radius: 999px;
       background: rgba(255, 255, 255, 0.88);
-      border: 1px solid rgba(52, 199, 89, 0.22);
-      color: #15331d;
       font-size: 0.84rem;
       font-weight: 600;
       white-space: nowrap;
+    }
+
+    .playing-now {
+      gap: 8px;
+      border: 1px solid rgba(52, 199, 89, 0.22);
+      color: #15331d;
     }
 
     .flash-dot {
@@ -118,7 +140,7 @@
       font-size: clamp(2rem, 4vw, 3.6rem);
       line-height: 0.96;
       letter-spacing: -0.05em;
-      max-width: 12ch;
+      max-width: 14ch;
     }
 
     .subtitle {
@@ -129,8 +151,45 @@
       line-height: 1.5;
     }
 
-    .matrix-card {
+    .summary-grid {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 12px;
+      margin-top: 18px;
+    }
+
+    .summary-tile,
+    .leaderboard-card,
+    .archive-card {
+      border: 1px solid var(--border);
+      border-radius: 18px;
+      background: rgba(255, 255, 255, 0.74);
+    }
+
+    .summary-tile {
+      padding: 14px 16px;
+    }
+
+    .summary-tile span,
+    .model-label small,
+    .score-line,
+    .archive-card small {
+      color: var(--muted);
+    }
+
+    .summary-tile strong {
+      display: block;
+      margin-top: 6px;
+      font-size: 1.45rem;
+    }
+
+    .matrix-card,
+    .leaderboard-section,
+    .archive-section {
       margin: 6px 14px 10px;
+    }
+
+    .matrix-card {
       border: 1px solid var(--border);
       border-radius: 5px;
       background: rgba(255, 255, 255, 0.74);
@@ -174,7 +233,6 @@
       min-width: 118px;
       font-size: 0.9rem;
       font-weight: 600;
-      letter-spacing: -0.02em;
     }
 
     tbody tr:last-child th,
@@ -184,6 +242,25 @@
 
     td {
       text-align: center;
+    }
+
+    .model-label {
+      gap: 10px;
+    }
+
+    .model-label small {
+      display: block;
+      margin-top: 2px;
+      font-size: 0.78rem;
+      font-weight: 500;
+    }
+
+    .model-swatch {
+      width: 10px;
+      height: 28px;
+      border-radius: 999px;
+      background: var(--gray);
+      flex: 0 0 auto;
     }
 
     .status-dot {
@@ -206,6 +283,10 @@
       background: var(--gray);
     }
 
+    .status-error {
+      background: var(--red);
+    }
+
     .legend {
       display: flex;
       gap: 18px;
@@ -216,8 +297,6 @@
     }
 
     .legend-item {
-      display: inline-flex;
-      align-items: center;
       gap: 8px;
     }
 
@@ -225,11 +304,49 @@
       padding: 12px 14px 14px;
       color: var(--muted);
       font-size: 0.88rem;
+      text-align: left;
     }
 
-    a {
-      color: inherit;
-      text-decoration: none;
+    .leaderboard-section,
+    .archive-section {
+      display: grid;
+      gap: 12px;
+    }
+
+    .section-head {
+      display: flex;
+      justify-content: space-between;
+      gap: 16px;
+      align-items: end;
+    }
+
+    .section-head h2 {
+      margin: 0;
+      font-size: 1.1rem;
+    }
+
+    .leaderboard-grid,
+    .archive-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+      gap: 12px;
+    }
+
+    .leaderboard-card,
+    .archive-card {
+      padding: 15px 16px;
+    }
+
+    .leaderboard-card strong,
+    .archive-card strong {
+      display: block;
+    }
+
+    .score-line {
+      justify-content: space-between;
+      gap: 12px;
+      margin-top: 10px;
+      font-size: 0.9rem;
     }
 
     @keyframes pulse {
@@ -257,11 +374,21 @@
         flex-direction: column;
       }
 
+      .nav-links {
+        justify-content: flex-start;
+      }
+
       .hero {
         padding: 6px 10px 2px;
       }
 
-      .matrix-card {
+      .summary-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+
+      .matrix-card,
+      .leaderboard-section,
+      .archive-section {
         margin: 6px 10px 10px;
       }
 
@@ -271,23 +398,57 @@
         padding-right: 10px;
       }
     }
+
+    @media (max-width: 560px) {
+      .summary-grid {
+        grid-template-columns: 1fr;
+      }
+
+      h1 {
+        font-size: 2.15rem;
+      }
+    }
   </style>
 </head>
 <body>
   <main>
     <section class="shell">
       <nav class="nav">
-        <div class="brand">
+        <a class="brand" href="/">
           <span class="brand-mark"></span>
-          <span>CTF Autosolver</span>
-        </div>
-        <div class="playing-now">
-          <span class="flash-dot"></span>
-          <span id="status-text">Loading current event...</span>
+          <span>FlagFarm</span>
+        </a>
+        <div class="nav-links">
+          <div class="playing-now">
+            <span class="flash-dot"></span>
+            <span id="status-text">Loading current event...</span>
+          </div>
+          <a class="nav-link" id="admin-link" href="/admin/">Admin</a>
         </div>
       </nav>
 
       <header class="hero">
+        <p class="eyebrow" id="eyebrow">Weekly CTF</p>
+        <h1 id="ctf-title">FlagFarm</h1>
+        <p class="subtitle" id="ctf-copy">Loading live run data...</p>
+        <div class="summary-grid">
+          <div class="summary-tile">
+            <span>Challenges</span>
+            <strong id="stat-challenges">0</strong>
+          </div>
+          <div class="summary-tile">
+            <span>Model Runs</span>
+            <strong id="stat-models">0</strong>
+          </div>
+          <div class="summary-tile">
+            <span>Solved Cells</span>
+            <strong id="stat-solved">0/0</strong>
+          </div>
+          <div class="summary-tile">
+            <span>Runs Active</span>
+            <strong id="stat-running">0</strong>
+          </div>
+        </div>
       </header>
 
       <section class="matrix-card">
@@ -309,42 +470,121 @@
         <span class="legend-item"><span class="status-dot status-solved"></span> Solved</span>
         <span class="legend-item"><span class="status-dot status-trying"></span> Trying</span>
         <span class="legend-item"><span class="status-dot status-idle"></span> Idle</span>
+        <span class="legend-item"><span class="status-dot status-error"></span> Error</span>
       </div>
+
+      <section class="leaderboard-section">
+        <div class="section-head">
+          <div>
+            <p class="eyebrow">Leaderboard</p>
+            <h2>Weighted score</h2>
+          </div>
+        </div>
+        <div class="leaderboard-grid" id="leaderboard-grid"></div>
+      </section>
+
+      <section class="archive-section">
+        <div class="section-head">
+          <div>
+            <p class="eyebrow">Archive</p>
+            <h2>Recent weeks</h2>
+          </div>
+        </div>
+        <div class="archive-grid" id="archive-grid"></div>
+      </section>
     </section>
   </main>
   <script>
-    async function loadDashboard() {
-      const response = await fetch("/api/dashboard");
-      if (!response.ok) {
-        throw new Error("Failed to fetch dashboard data");
+    const dashboardApiUrl = {{ dashboard_api_url|tojson }};
+
+    function setText(id, value) {
+      document.getElementById(id).textContent = value;
+    }
+
+    function appendText(parent, text) {
+      parent.appendChild(document.createTextNode(text));
+    }
+
+    function money(value) {
+      return `$${Number(value || 0).toFixed(4)}`;
+    }
+
+    function renderHeader(data) {
+      setText("status-text", data.status_text);
+      document.getElementById("admin-link").href = data.admin_url;
+
+      if (!data.ctf) {
+        setText("eyebrow", "No Active Week");
+        setText("ctf-title", "FlagFarm is waiting.");
+        setText("ctf-copy", "Create a week in Admin, sync challenges from CTFd, attach model accounts, and start the run.");
+      } else {
+        setText("eyebrow", data.ctf.status);
+        setText("ctf-title", data.ctf.title);
+        setText(
+          "ctf-copy",
+          `${data.ctf.ctfd_url} · budget ${Number(data.ctf.budget_usd).toFixed(2)} USD per challenge · sandbox ${data.ctf.sandbox_digest.slice(-16)}`
+        );
       }
 
-      const data = await response.json();
-      document.getElementById("status-text").textContent = data.status_text;
+      setText("stat-challenges", data.overview.challenge_count);
+      setText("stat-models", data.overview.model_count);
+      setText("stat-solved", `${data.matrix.solved_cells}/${data.matrix.total_cells}`);
+      setText("stat-running", data.overview.running_count);
+    }
 
+    function renderMatrix(data) {
       const headRow = document.getElementById("matrix-head");
       const body = document.getElementById("matrix-body");
+      headRow.replaceChildren();
+      body.replaceChildren();
+
+      const modelHead = document.createElement("th");
+      modelHead.textContent = "Model";
+      headRow.appendChild(modelHead);
 
       for (const challenge of data.challenges) {
         const th = document.createElement("th");
-        th.textContent = challenge;
+        th.textContent = challenge.name;
+        th.title = `${challenge.category} · ${challenge.points} pts · ${challenge.difficulty}`;
         headRow.appendChild(th);
       }
 
-      body.innerHTML = "";
+      if (!data.challenges.length || !data.models.length) {
+        const row = document.createElement("tr");
+        const cell = document.createElement("td");
+        cell.colSpan = Math.max(2, data.challenges.length + 1);
+        cell.className = "message";
+        cell.textContent = "Sync challenges and start a competition to populate the matrix.";
+        row.appendChild(cell);
+        body.appendChild(row);
+        return;
+      }
 
       for (const model of data.models) {
         const row = document.createElement("tr");
         const label = document.createElement("th");
         label.scope = "row";
-        label.textContent = model.name;
+
+        const labelWrap = document.createElement("span");
+        labelWrap.className = "model-label";
+        const swatch = document.createElement("span");
+        swatch.className = "model-swatch";
+        swatch.style.background = model.color || "var(--gray)";
+        const textWrap = document.createElement("span");
+        const name = document.createElement("strong");
+        name.textContent = model.name;
+        const meta = document.createElement("small");
+        meta.textContent = model.slug || "";
+        textWrap.append(name, meta);
+        labelWrap.append(swatch, textWrap);
+        label.appendChild(labelWrap);
         row.appendChild(label);
 
-        for (const state of model.states) {
+        for (const cellData of model.cells) {
           const cell = document.createElement("td");
           const dot = document.createElement("span");
-          dot.className = `status-dot status-${state}`;
-          dot.title = state;
+          dot.className = `status-dot status-${cellData.kind}`;
+          dot.title = `${cellData.challenge}: ${cellData.label} · ${money(cellData.cost_usd)}`;
           cell.appendChild(dot);
           row.appendChild(cell);
         }
@@ -353,9 +593,93 @@
       }
     }
 
+    function renderLeaderboard(rows) {
+      const grid = document.getElementById("leaderboard-grid");
+      grid.replaceChildren();
+
+      if (!rows.length) {
+        const message = document.createElement("p");
+        message.className = "message";
+        message.textContent = "No model runs have been scored yet.";
+        grid.appendChild(message);
+        return;
+      }
+
+      for (const row of rows) {
+        const card = document.createElement("article");
+        card.className = "leaderboard-card";
+
+        const title = document.createElement("strong");
+        title.textContent = `#${row.rank} ${row.model}`;
+        const score = document.createElement("div");
+        score.className = "score-line";
+        appendText(score, `${row.score} pts`);
+        const solves = document.createElement("span");
+        solves.textContent = `${row.solves}/${row.attempted} solves`;
+        score.appendChild(solves);
+
+        const cost = document.createElement("div");
+        cost.className = "score-line";
+        appendText(cost, money(row.total_usd));
+        const provider = document.createElement("span");
+        provider.textContent = row.provider;
+        cost.appendChild(provider);
+
+        card.append(title, score, cost);
+        grid.appendChild(card);
+      }
+    }
+
+    function renderArchive(items) {
+      const grid = document.getElementById("archive-grid");
+      grid.replaceChildren();
+
+      if (!items.length) {
+        const message = document.createElement("p");
+        message.className = "message";
+        message.textContent = "No archived CTFs yet.";
+        grid.appendChild(message);
+        return;
+      }
+
+      for (const item of items) {
+        const link = document.createElement("a");
+        link.className = "archive-card";
+        link.href = item.url;
+
+        const title = document.createElement("strong");
+        title.textContent = item.title;
+        const meta = document.createElement("small");
+        meta.textContent = `${item.status} · ${item.challenge_count} challenges · ${item.run_count} runs`;
+
+        link.append(title, meta);
+        grid.appendChild(link);
+      }
+    }
+
+    async function loadDashboard() {
+      const response = await fetch(dashboardApiUrl);
+      if (!response.ok) {
+        throw new Error("Failed to fetch dashboard data");
+      }
+
+      const data = await response.json();
+      renderHeader(data);
+      renderMatrix(data);
+      renderLeaderboard(data.leaderboard);
+      renderArchive(data.recent_ctfs);
+    }
+
     loadDashboard().catch((error) => {
       const body = document.getElementById("matrix-body");
-      body.innerHTML = `<tr><td colspan="11" class="message">${error.message}</td></tr>`;
+      body.innerHTML = "";
+      const row = document.createElement("tr");
+      const cell = document.createElement("td");
+      cell.colSpan = 11;
+      cell.className = "message";
+      cell.textContent = error.message;
+      row.appendChild(cell);
+      body.appendChild(row);
     });
   </script>
 </body>

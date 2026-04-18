@@ -6,11 +6,11 @@ from flask import Flask
 
 from flagfarm.blueprints.admin import bp as admin_bp
 from flagfarm.blueprints.api import bp as api_bp
-from flagfarm.blueprints.public import bp as public_bp
 from flagfarm.config import Config
 from flagfarm.db import init_app as init_db
 from flagfarm.services.competition import CompetitionManager
 from flagfarm.telemetry import init_sentry
+from modules.frontend import frontend_bp
 
 
 def create_app(config_object: type[Config] = Config) -> Flask:
@@ -32,7 +32,7 @@ def create_app(config_object: type[Config] = Config) -> Flask:
 
     app.extensions["competition_manager"] = CompetitionManager(app)
 
-    app.register_blueprint(public_bp)
+    app.register_blueprint(frontend_bp)
     app.register_blueprint(admin_bp)
     app.register_blueprint(api_bp)
 

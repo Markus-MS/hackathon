@@ -3,15 +3,19 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Autosolver Details</title>
+  <title>FlagFarm Details</title>
   <style>
     :root {
-      --bg: #0c1117;
-      --panel: rgba(255, 255, 255, 0.06);
-      --text: #eff3f7;
-      --muted: #94a0ad;
-      --accent: #8ec5ff;
-      --border: rgba(255, 255, 255, 0.1);
+      color-scheme: light;
+      --bg: #f3f4f7;
+      --bg-accent: #dde3ec;
+      --panel: rgba(255, 255, 255, 0.78);
+      --panel-strong: rgba(255, 255, 255, 0.92);
+      --text: #111318;
+      --muted: #6d7480;
+      --border: rgba(17, 19, 24, 0.08);
+      --shadow: 0 24px 80px rgba(19, 28, 45, 0.12);
+      --green: #34c759;
     }
 
     * {
@@ -24,27 +28,29 @@
       font-family: "SF Pro Display", "Segoe UI", Helvetica, Arial, sans-serif;
       color: var(--text);
       background:
-        radial-gradient(circle at top, rgba(142, 197, 255, 0.14), transparent 26%),
-        linear-gradient(160deg, #0a0f14, var(--bg));
+        radial-gradient(circle at top left, rgba(120, 146, 186, 0.22), transparent 28%),
+        radial-gradient(circle at top right, rgba(255, 255, 255, 0.9), transparent 22%),
+        linear-gradient(180deg, var(--bg), var(--bg-accent));
       display: grid;
       place-items: center;
-      padding: 2rem;
+      padding: 28px;
     }
 
     section {
       width: min(90vw, 760px);
       padding: 2.5rem;
-      border-radius: 28px;
-      border: 1px solid var(--border);
-      background: var(--panel);
-      backdrop-filter: blur(12px);
-      box-shadow: 0 20px 70px rgba(0, 0, 0, 0.28);
+      border-radius: 30px;
+      border: 1px solid rgba(255, 255, 255, 0.7);
+      background: linear-gradient(180deg, var(--panel-strong), var(--panel));
+      backdrop-filter: blur(22px);
+      box-shadow: var(--shadow);
     }
 
     h1 {
       margin: 0 0 0.75rem;
       font-size: clamp(2.2rem, 6vw, 4rem);
       letter-spacing: -0.05em;
+      line-height: 0.96;
     }
 
     p {
@@ -64,26 +70,58 @@
       padding: 14px 16px;
       border-radius: 18px;
       border: 1px solid var(--border);
-      background: rgba(255, 255, 255, 0.04);
+      background: rgba(255, 255, 255, 0.74);
     }
 
     a {
-      color: var(--accent);
+      color: inherit;
       text-decoration: none;
-      font-weight: bold;
+      font-weight: 700;
     }
   </style>
 </head>
 <body>
   <section>
-    <h1>Details View</h1>
-    <p>This secondary route is ready for solver metadata, logs, or challenge drill-downs. A matching JSON endpoint is available now so you can expand the page with live data later.</p>
-    <div class="meta">
-      <div class="meta-card">HTML route: <code>/details</code></div>
-      <div class="meta-card">API route: <code>/api/details</code></div>
-      <div class="meta-card">Dashboard feed: <code>/api/dashboard</code></div>
-    </div>
+    <h1 id="title">Details</h1>
+    <p id="summary">Loading active CTF metadata...</p>
+    <div class="meta" id="meta"></div>
     <a href="/">Back Home</a>
   </section>
+  <script>
+    function addMeta(label, value) {
+      const meta = document.getElementById("meta");
+      const card = document.createElement("div");
+      card.className = "meta-card";
+      card.textContent = `${label}: ${value}`;
+      meta.appendChild(card);
+    }
+
+    async function loadDetails() {
+      const response = await fetch("/api/details");
+      if (!response.ok) {
+        throw new Error("Failed to fetch details");
+      }
+      const data = await response.json();
+      const meta = document.getElementById("meta");
+      meta.replaceChildren();
+
+      if (!data.ctf) {
+        document.getElementById("title").textContent = "No Active Week";
+        document.getElementById("summary").textContent = data.summary;
+        return;
+      }
+
+      document.getElementById("title").textContent = data.ctf.title;
+      document.getElementById("summary").textContent = `${data.ctf.status} · ${data.ctf.ctfd_url}`;
+      addMeta("Challenges", data.overview.challenge_count);
+      addMeta("Model runs", data.overview.model_count);
+      addMeta("Runs active", data.overview.running_count);
+      addMeta("Sandbox", data.ctf.sandbox_digest.slice(-16));
+    }
+
+    loadDetails().catch((error) => {
+      document.getElementById("summary").textContent = error.message;
+    });
+  </script>
 </body>
 </html>

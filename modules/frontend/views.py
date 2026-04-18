@@ -1,4 +1,9 @@
-from flask import Blueprint, jsonify, render_template
+from __future__ import annotations
+
+from flask import Blueprint, abort, jsonify, render_template, url_for
+
+from flagfarm.db import get_db
+from flagfarm.services import ctf_service, leaderboard
 
 
 frontend_bp = Blueprint(
@@ -10,38 +15,34 @@ frontend_bp = Blueprint(
 )
 
 
-DASHBOARD_DATA = {
-    "ctf_name": "GlacierCTF",
-    "status_text": "Playing GlacierCTF now",
-    "challenges": [f"chall{i}" for i in range(1, 11)],
-    "models": [
-        {
-            "name": "gpt 5.4",
-            "states": ["solved", "solved", "trying", "idle", "solved", "trying", "idle", "solved", "idle", "trying"],
-        },
-        {
-            "name": "gpt 5.3",
-            "states": ["trying", "idle", "solved", "solved", "idle", "trying", "solved", "idle", "trying", "idle"],
-        },
-        {
-            "name": "gpt 4.1",
-            "states": ["idle", "trying", "idle", "solved", "solved", "idle", "trying", "solved", "idle", "solved"],
-        },
-        {
-            "name": "gpt 4o",
-            "states": ["solved", "idle", "trying", "idle", "solved", "solved", "idle", "trying", "idle", "idle"],
-        },
-        {
-            "name": "o4-mini",
-            "states": ["idle", "solved", "idle", "trying", "idle", "solved", "trying", "idle", "solved", "trying"],
-        },
-    ],
+STATUS_KIND = {
+    "solved": "solved",
+    "running": "trying",
+    "queued": "idle",
+    "failed": "error",
+    "crashed": "error",
+    "budget_exhausted": "error",
+    "timed_out": "error",
 }
 
 
 @frontend_bp.get("/")
 def index():
-    return render_template("index.html")
+    return render_template(
+        "index.html",
+        dashboard_api_url=url_for("frontend.api_dashboard"),
+    )
+
+
+@frontend_bp.get("/ctfs/<int:ctf_id>")
+def ctf_detail(ctf_id: int):
+    db = get_db()
+    if ctf_service.get_ctf(db, ctf_id) is None:
+        abort(404)
+    return render_template(
+        "index.html",
+        dashboard_api_url=url_for("frontend.api_dashboard_for_ctf", ctf_id=ctf_id),
+    )
 
 
 @frontend_bp.get("/details")
@@ -51,15 +52,143 @@ def details():
 
 @frontend_bp.get("/api/dashboard")
 def api_dashboard():
-    return jsonify(DASHBOARD_DATA)
+    return jsonify(build_dashboard_payload())
+
+
+@frontend_bp.get("/api/dashboard/<int:ctf_id>")
+def api_dashboard_for_ctf(ctf_id: int):
+    return jsonify(build_dashboard_payload(ctf_id))
 
 
 @frontend_bp.get("/api/details")
 def api_details():
+    db = get_db()
+    ctf = ctf_service.get_active_ctf(db)
+    if ctf is None:
+        return jsonify({"ctf": None, "summary": "No active CTF is configured."})
     return jsonify(
         {
-            "ctf_name": DASHBOARD_DATA["ctf_name"],
-            "summary": "Dummy details endpoint for the autosolver frontend.",
-            "next_step": "Replace this payload with live challenge and solver metadata later.",
+            "ctf": serialize_ctf(ctf),
+            "overview": leaderboard.build_ctf_overview(db, ctf["id"]),
         }
     )
+
+
+@frontend_bp.get("/healthz")
+def healthz():
+    db = get_db()
+    ctf = ctf_service.get_active_ctf(db)
+    return jsonify(
+        {
+            "ok": True,
+            "active_ctf_id": ctf["id"] if ctf is not None else None,
+        }
+    )
+
+
+def build_dashboard_payload(ctf_id: int | None = None) -> dict[str, object]:
+    db = get_db()
+    ctf = ctf_service.get_ctf(db, ctf_id) if ctf_id is not None else ctf_service.get_active_ctf(db)
+    recent_ctfs = [serialize_recent_ctf(row) for row in ctf_service.list_ctfs(db)]
+
+    if ctf is None:
+        models = [
+            {
+                "name": row["display_name"],
+                "provider": row["provider"],
+                "color": row["color"],
+                "states": [],
+                "cells": [],
+            }
+            for row in ctf_service.list_models(db, enabled_only=True)
+        ]
+        return {
+            "ctf": None,
+            "status_text": "Waiting for the next CTF",
+            "overview": {"challenge_count": 0, "model_count": len(models), "running_count": 0},
+            "challenges": [],
+            "models": models,
+            "leaderboard": [],
+            "matrix": {"solved_cells": 0, "total_cells": 0},
+            "recent_ctfs": recent_ctfs,
+            "admin_url": url_for("admin.dashboard"),
+        }
+
+    matrix = leaderboard.build_matrix(db, ctf["id"])
+    models = []
+    for index, model in enumerate(matrix["models"]):
+        cells = []
+        for row in matrix["rows"]:
+            challenge = row["challenge"]
+            cell = row["cells"][index]
+            status = str(cell["status"])
+            cells.append(
+                {
+                    "challenge": challenge["name"],
+                    "category": challenge["category"],
+                    "points": challenge["points"],
+                    "status": status,
+                    "kind": STATUS_KIND.get(status, "idle"),
+                    "label": status.replace("_", " "),
+                    "cost_usd": cell["cost_usd"],
+                    "solve_time_seconds": cell["solve_time_seconds"],
+                    "error_message": cell["error_message"],
+                }
+            )
+        models.append(
+            {
+                "name": model["display_name"],
+                "slug": model["slug"],
+                "color": model["color"],
+                "states": [cell["kind"] for cell in cells],
+                "cells": cells,
+            }
+        )
+
+    return {
+        "ctf": serialize_ctf(ctf),
+        "status_text": f"Playing {ctf['title']} now" if ctf["status"] == "active" else f"{ctf['title']} is {ctf['status']}",
+        "overview": leaderboard.build_ctf_overview(db, ctf["id"]),
+        "challenges": [
+            {
+                "id": row["challenge"]["id"],
+                "name": row["challenge"]["name"],
+                "category": row["challenge"]["category"],
+                "points": row["challenge"]["points"],
+                "difficulty": row["challenge"]["difficulty"],
+            }
+            for row in matrix["rows"]
+        ],
+        "models": models,
+        "leaderboard": leaderboard.build_leaderboard(db, ctf["id"]),
+        "matrix": {
+            "solved_cells": matrix["solved_cells"],
+            "total_cells": matrix["total_cells"],
+        },
+        "recent_ctfs": recent_ctfs,
+        "admin_url": url_for("admin.dashboard"),
+    }
+
+
+def serialize_ctf(row) -> dict[str, object]:
+    return {
+        "id": row["id"],
+        "title": row["title"],
+        "status": row["status"],
+        "ctfd_url": row["ctfd_url"],
+        "sandbox_digest": row["sandbox_digest"],
+        "budget_usd": row["budget_usd"],
+        "budget_wall_seconds": row["budget_wall_seconds"],
+    }
+
+
+def serialize_recent_ctf(row) -> dict[str, object]:
+    return {
+        "id": row["id"],
+        "title": row["title"],
+        "status": row["status"],
+        "challenge_count": row["challenge_count"],
+        "run_count": row["run_count"],
+        "completed_runs": row["completed_runs"],
+        "url": url_for("frontend.ctf_detail", ctf_id=row["id"]),
+    }
