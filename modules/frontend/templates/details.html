@@ -314,7 +314,7 @@
 
       let rerunBtn = null;
       function syncRerunButton(nextRow) {
-        if (nextRow.challenge_run_id && !["solved", "running", "queued"].includes(nextRow.status)) {
+        if (nextRow.challenge_run_id && !["running", "queued"].includes(nextRow.status)) {
           if (!rerunBtn) {
             rerunBtn = document.createElement("button");
             rerunBtn.className = "rerun-btn";
