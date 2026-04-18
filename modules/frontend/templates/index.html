@@ -71,14 +71,8 @@
 </head>
 <body>
   <main>
-    <header class="top-header">
-      <div class="top-header-inner">
-        <a class="brand plain-brand" href="{{ url_for('frontend.index') }}">
-          <span>CTFArena</span>
-        </a>
-        <div class="ctf-nav-buttons" id="ctf-nav-buttons"></div>
-      </div>
-    </header>
+    {% set show_ctf_nav = true %}
+    {% include "_navigation_header.html" %}
     <section class="shell">
       <header class="hero">
         <div class="summary-grid">
@@ -368,28 +362,27 @@
       const seen = new Set();
       const entries = [];
 
-      if (data.ctf && data.ctf.id != null) {
-        entries.push({ id: Number(data.ctf.id), title: data.ctf.title });
-        seen.add(Number(data.ctf.id));
-      }
-
+      // Keep a deterministic order regardless of the currently selected CTF.
       for (const item of (data.recent_ctfs || [])) {
         const id = Number(item.id);
         if (Number.isNaN(id) || seen.has(id)) continue;
         entries.push({ id, title: item.title });
         seen.add(id);
       }
+      // Ensure active CTF still appears even if missing from recent list.
+      if (data.ctf && data.ctf.id != null && !seen.has(Number(data.ctf.id))) {
+        entries.push({ id: Number(data.ctf.id), title: data.ctf.title });
+        seen.add(Number(data.ctf.id));
+      }
 
       for (const entry of entries) {
         const link = document.createElement("a");
         link.className = "ctf-switch-btn";
         link.textContent = entry.title;
+        link.href = ctfUrl(entry.id);
         if (currentId != null && entry.id === currentId) {
           link.classList.add("is-active");
-          link.href = "#";
           link.setAttribute("aria-current", "page");
-        } else {
-          link.href = ctfUrl(entry.id);
         }
         nav.appendChild(link);
       }

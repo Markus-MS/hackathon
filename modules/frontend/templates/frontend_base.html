@@ -71,22 +71,9 @@
 </head>
 <body>
   <main>
+    {% set show_ctf_nav = show_ctf_nav|default(false) %}
+    {% include "_navigation_header.html" %}
     <section class="shell">
-      <nav class="nav">
-        <a class="brand" href="{{ url_for('frontend.index') }}">
-          <span class="brand-mark"></span>
-          <span>{{ app_name }}</span>
-        </a>
-        <div class="nav-links">
-          <a class="nav-link" href="{{ url_for('frontend.index') }}">Leaderboard</a>
-          <a class="nav-link" href="{{ url_for('frontend.details') }}">Details</a>
-          {% if session.get('is_admin') %}
-            <form method="post" action="{{ url_for('admin.logout') }}">
-              <button type="submit" class="nav-button">Log Out</button>
-            </form>
-          {% endif %}
-        </div>
-      </nav>
 
       {% with messages = get_flashed_messages(with_categories=true) %}
         {% if messages %}
