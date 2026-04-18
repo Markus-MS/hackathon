@@ -11,6 +11,7 @@ from ctfarena.utils import slugify, utc_now
 
 
 bp = Blueprint("admin", __name__, url_prefix="/admin")
+PROVIDER_OPTIONS = ("openai", "anthropic", "google", "deepseek", "openrouter")
 
 
 @bp.route("/login", methods=["GET", "POST"])
@@ -60,6 +61,7 @@ def dashboard():
         "frontend_admin/dashboard.html",
         ctfs=ctfs,
         models=models,
+        provider_options=PROVIDER_OPTIONS,
         account_map=account_map,
         run_monitor=run_monitor,
         runtime_settings=settings,
@@ -91,6 +93,9 @@ def update_settings():
         "solver_llm_timeout_seconds": request.form.get("solver_llm_timeout_seconds", "").strip()
         or "90",
         "solver_extra_env": request.form.get("solver_extra_env", "").strip(),
+        "opencode_config_dir": request.form.get("opencode_config_dir", "").strip(),
+        "opencode_data_dir": request.form.get("opencode_data_dir", "").strip(),
+        "openrouter_api_key": request.form.get("openrouter_api_key", "").strip(),
     }
     for key in runtime_settings.SECRET_KEYS:
         posted = request.form.get(key, "")
@@ -112,6 +117,13 @@ def update_model(model_id: int):
     provider_api_key = request.form.get("provider_api_key", "").strip()
     if provider_api_key and not runtime_settings.set_provider_api_key(provider, provider_api_key):
         flash("Unsupported provider for API key storage.", "error")
+        return redirect(url_for("admin.dashboard"))
+    if not _ensure_provider_rate(
+        provider=provider,
+        model_name=model_name,
+        rate_key=rate_key,
+        api_key=provider_api_key or runtime_settings.provider_api_key(provider),
+    ):
         return redirect(url_for("admin.dashboard"))
     db.execute(
         """
@@ -174,13 +186,24 @@ def list_llm_models():
         return jsonify({"error": "Paste an API key or save one in Runtime Settings first."}), 400
 
     try:
-        models = llm_catalog.list_models(
+        catalog = llm_catalog.list_model_catalog(
             provider,
             api_key,
             timeout=current_app.config["REQUEST_TIMEOUT_SECONDS"],
         )
     except llm_catalog.LLMCatalogError as exc:
         return jsonify({"error": str(exc)}), 400
+
+    if provider == "openrouter":
+        pricing.upsert_dynamic_rates(
+            {
+                f"{provider}:{str(item['id'])}": item["pricing"]
+                for item in catalog
+                if isinstance(item.get("pricing"), dict)
+            }
+        )
+
+    models = [str(item["id"]) for item in catalog]
     rate_keys = pricing.get_rate_table()
     models = sorted(
         models,
@@ -189,7 +212,7 @@ def list_llm_models():
             model_name,
         ),
     )
-    return jsonify({"models": models})
+    return jsonify({"models": models, "rate_keys": [f"{provider}:{model_name}" for model_name in models]})
 
 
 @bp.post("/models")
@@ -212,6 +235,13 @@ def create_model():
         return redirect(url_for("admin.dashboard"))
     if provider_api_key and not runtime_settings.set_provider_api_key(provider, provider_api_key):
         flash("Unsupported provider for API key storage.", "error")
+        return redirect(url_for("admin.dashboard"))
+    if not _ensure_provider_rate(
+        provider=provider,
+        model_name=model_name,
+        rate_key=rate_key,
+        api_key=provider_api_key or runtime_settings.provider_api_key(provider),
+    ):
         return redirect(url_for("admin.dashboard"))
 
     slug = slug_root
@@ -260,6 +290,51 @@ def create_model():
         "success",
     )
     return redirect(url_for("admin.dashboard"))
+
+
+def _ensure_provider_rate(*, provider: str, model_name: str, rate_key: str, api_key: str) -> bool:
+    provider = provider.strip().lower()
+    if provider != "openrouter":
+        return True
+
+    canonical_rate_key = f"{provider}:{model_name}"
+    rates = pricing.get_rate_table()
+    if rate_key in rates or canonical_rate_key in rates:
+        if rate_key != canonical_rate_key and canonical_rate_key in rates and rate_key not in rates:
+            pricing.upsert_dynamic_rates({rate_key: rates[canonical_rate_key]})
+        return True
+    if not api_key:
+        flash(
+            "OpenRouter API key is required to load pricing for new OpenRouter models.",
+            "error",
+        )
+        return False
+
+    try:
+        catalog = llm_catalog.list_model_catalog(
+            provider,
+            api_key,
+            timeout=current_app.config["REQUEST_TIMEOUT_SECONDS"],
+        )
+    except llm_catalog.LLMCatalogError as exc:
+        flash(str(exc), "error")
+        return False
+
+    pricing.upsert_dynamic_rates(
+        {
+            f"{provider}:{str(item['id'])}": item["pricing"]
+            for item in catalog
+            if isinstance(item.get("pricing"), dict)
+        }
+    )
+    rates = pricing.get_rate_table()
+    if rate_key != canonical_rate_key and canonical_rate_key in rates:
+        pricing.upsert_dynamic_rates({rate_key: rates[canonical_rate_key]})
+        rates = pricing.get_rate_table()
+    if rate_key not in rates and canonical_rate_key not in rates:
+        flash(f"OpenRouter did not return pricing for model {model_name}.", "error")
+        return False
+    return True
 
 
 @bp.post("/ctfs")

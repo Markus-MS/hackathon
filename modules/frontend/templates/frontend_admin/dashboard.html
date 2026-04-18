@@ -117,6 +117,10 @@
         <input type="password" name="deepseek_api_key" placeholder="Leave blank to keep existing">
       </label>
       <label>
+        <span>OpenRouter API Key{% if masked_settings.get('openrouter_api_key') %} · {{ masked_settings['openrouter_api_key'] }}{% endif %}</span>
+        <input type="password" name="openrouter_api_key" placeholder="Leave blank to keep existing">
+      </label>
+      <label>
         <span>Docker Image</span>
         <input type="text" name="solver_image" value="{{ runtime_settings['solver_image'] }}" required>
       </label>
@@ -140,9 +144,17 @@
         <span>LLM Timeout Seconds</span>
         <input type="number" name="solver_llm_timeout_seconds" value="{{ runtime_settings['solver_llm_timeout_seconds'] }}" min="5" max="600">
       </label>
+      <label>
+        <span>OpenCode Config Directory</span>
+        <input type="text" name="opencode_config_dir" value="{{ runtime_settings['opencode_config_dir'] }}" placeholder="Optional host path to ~/.config/opencode">
+      </label>
+      <label>
+        <span>OpenCode Auth/Data Directory</span>
+        <input type="text" name="opencode_data_dir" value="{{ runtime_settings['opencode_data_dir'] }}" placeholder="Optional host path to ~/.local/share/opencode">
+      </label>
       <label class="wide-field">
         <span>Extra Docker Environment</span>
-        <textarea name="solver_extra_env" rows="4" placeholder="FF_OPENAI_BASE_URL=https://...">{{ runtime_settings['solver_extra_env'] }}</textarea>
+        <textarea name="solver_extra_env" rows="4" placeholder="OPENAI_BASE_URL=https://...">{{ runtime_settings['solver_extra_env'] }}</textarea>
       </label>
       <div class="form-actions">
         <button type="submit">Save Settings</button>
@@ -181,7 +193,7 @@
         <label>
           <span>Provider</span>
           <select name="provider" id="llm-provider">
-            {% for provider in ['openai', 'anthropic', 'google', 'deepseek'] %}
+            {% for provider in provider_options %}
               <option value="{{ provider }}">{{ provider }}</option>
             {% endfor %}
           </select>
@@ -241,7 +253,7 @@
           <label>
             <span>Provider</span>
             <select name="provider">
-              {% for provider in ['openai', 'anthropic', 'google', 'deepseek'] %}
+              {% for provider in provider_options %}
                 <option value="{{ provider }}" {% if model['provider'] == provider %}selected{% endif %}>{{ provider }}</option>
               {% endfor %}
             </select>
@@ -443,6 +455,7 @@
       const modelName = document.getElementById("llm-model-name");
       const rateKey = document.getElementById("llm-rate-key");
       const datalist = document.getElementById("model-name-options");
+      const rateKeyDatalist = document.getElementById("rate-key-options");
 
       function setStatus(message, isError = false) {
         status.textContent = message;
@@ -464,6 +477,18 @@
       function applyModel(modelId) {
         modelName.value = modelId;
         rateKey.value = `${provider.value}:${modelId}`;
+      }
+
+      function rememberRateKeyOption(value) {
+        if (!rateKeyDatalist) {
+          return;
+        }
+        const exists = Array.from(rateKeyDatalist.options).some((option) => option.value === value);
+        if (!exists) {
+          const option = document.createElement("option");
+          option.value = value;
+          rateKeyDatalist.appendChild(option);
+        }
       }
 
       loadButton.addEventListener("click", async () => {
@@ -492,6 +517,9 @@
             option.textContent = modelId;
             select.appendChild(option);
             rememberModelOption(modelId);
+          }
+          for (const key of payload.rate_keys || []) {
+            rememberRateKeyOption(key);
           }
 
           selectField.hidden = false;

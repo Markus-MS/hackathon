@@ -11,6 +11,7 @@ SECRET_KEYS = {
     "anthropic_api_key",
     "google_api_key",
     "deepseek_api_key",
+    "openrouter_api_key",
 }
 
 DEFAULT_SETTINGS = {
@@ -22,10 +23,13 @@ DEFAULT_SETTINGS = {
     "solver_llm_timeout_seconds": "90",
     "solver_grace_period_seconds": "300",
     "solver_extra_env": "",
+    "opencode_config_dir": "",
+    "opencode_data_dir": "",
     "openai_api_key": "",
     "anthropic_api_key": "",
     "google_api_key": "",
     "deepseek_api_key": "",
+    "openrouter_api_key": "",
 }
 
 NON_EMPTY_SETTINGS = {
@@ -43,6 +47,7 @@ PROVIDER_KEY_SETTING = {
     "anthropic": "anthropic_api_key",
     "google": "google_api_key",
     "deepseek": "deepseek_api_key",
+    "openrouter": "openrouter_api_key",
 }
 
 
