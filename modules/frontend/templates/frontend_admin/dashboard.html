@@ -3,13 +3,30 @@
 {% block title %}Admin · {{ app_name }}{% endblock %}
 
 {% block content %}
+  {% set admin_totals = namespace(challenges=0, runs=0, completed=0, accounts=0, enabled_models=0, running=0) %}
+  {% for ctf in ctfs %}
+    {% set admin_totals.challenges = admin_totals.challenges + ctf["challenge_count"] %}
+    {% set admin_totals.runs = admin_totals.runs + ctf["run_count"] %}
+    {% set admin_totals.completed = admin_totals.completed + ctf["completed_runs"] %}
+    {% set admin_totals.accounts = admin_totals.accounts + account_map.get(ctf["id"], [])|length %}
+    {% for item in run_monitor.get(ctf["id"], []) %}
+      {% if item["run"]["status"] in ("queued", "running") %}
+        {% set admin_totals.running = admin_totals.running + 1 %}
+      {% endif %}
+    {% endfor %}
+  {% endfor %}
+  {% for model in models %}
+    {% if model["enabled"] %}
+      {% set admin_totals.enabled_models = admin_totals.enabled_models + 1 %}
+    {% endif %}
+  {% endfor %}
+
   <section class="hero admin-hero">
     <div>
       <p class="eyebrow">Admin Control Plane</p>
       <h1>Weekly CTF orchestration</h1>
       <p class="hero-copy">
-        This panel is intentionally small: create the week metadata first, then sync challenges from CTFd manually,
-        attach accounts for the models you want to run, and start the evaluation.
+        Configure weeks, model credentials, solver backends, and reruns from one control surface.
       </p>
     </div>
     {% if active_ctf %}
@@ -30,7 +47,108 @@
     {% endif %}
   </section>
 
-  <section class="panel">
+  <section class="admin-tabs" data-admin-tabs>
+    <div class="admin-tab-list" role="tablist" aria-label="Admin dashboard sections">
+      <button type="button" class="admin-tab-button is-active" role="tab" aria-selected="true" data-admin-tab-button="overview">Overview</button>
+      <button type="button" class="admin-tab-button" role="tab" aria-selected="false" data-admin-tab-button="setup">Weekly Setup</button>
+      <button type="button" class="admin-tab-button" role="tab" aria-selected="false" data-admin-tab-button="settings">Runtime Settings</button>
+      <button type="button" class="admin-tab-button" role="tab" aria-selected="false" data-admin-tab-button="models">Model Roster</button>
+      <button type="button" class="admin-tab-button" role="tab" aria-selected="false" data-admin-tab-button="runs">Weekly Runs</button>
+    </div>
+
+    <section class="panel admin-tab-panel is-active" role="tabpanel" data-admin-tab-panel="overview">
+      <div class="panel-head">
+        <div>
+          <p class="eyebrow">Overview</p>
+          <h2>Current configuration</h2>
+        </div>
+      </div>
+      <div class="admin-overview-grid">
+        <article class="admin-stat-card">
+          <span>Weeks</span>
+          <strong>{{ ctfs|length }}</strong>
+        </article>
+        <article class="admin-stat-card">
+          <span>Challenges</span>
+          <strong>{{ admin_totals.challenges }}</strong>
+        </article>
+        <article class="admin-stat-card">
+          <span>Enabled Models</span>
+          <strong>{{ admin_totals.enabled_models }}/{{ models|length }}</strong>
+        </article>
+        <article class="admin-stat-card">
+          <span>CTFd Accounts</span>
+          <strong>{{ admin_totals.accounts }}</strong>
+        </article>
+        <article class="admin-stat-card">
+          <span>Runs</span>
+          <strong>{{ admin_totals.completed }}/{{ admin_totals.runs }}</strong>
+        </article>
+        <article class="admin-stat-card">
+          <span>Running Now</span>
+          <strong>{{ admin_totals.running }}</strong>
+        </article>
+      </div>
+
+      <div class="admin-overview-columns">
+        <section>
+          <h3>Active Week</h3>
+          {% if active_ctf %}
+            <dl class="admin-detail-list">
+              <div>
+                <dt>Title</dt>
+                <dd>{{ active_ctf["title"] }}</dd>
+              </div>
+              <div>
+                <dt>CTFd</dt>
+                <dd>{{ active_ctf["ctfd_url"] }}</dd>
+              </div>
+              <div>
+                <dt>Budget</dt>
+                <dd>${{ "%.2f"|format(active_ctf["budget_usd"]) }} · {{ active_ctf["budget_wall_seconds"] }}s</dd>
+              </div>
+              <div>
+                <dt>Sandbox</dt>
+                <dd><code>{{ active_ctf["sandbox_digest"][-16:] }}</code></dd>
+              </div>
+            </dl>
+          {% else %}
+            <p class="empty-state">No active CTF is configured yet.</p>
+          {% endif %}
+        </section>
+        <section>
+          <h3>Recent Weeks</h3>
+          {% if ctfs %}
+            <div class="table-wrap">
+              <table class="data-table compact-table">
+                <thead>
+                  <tr>
+                    <th>Week</th>
+                    <th>Status</th>
+                    <th>Challenges</th>
+                    <th>Runs</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {% for ctf in ctfs[:5] %}
+                    <tr>
+                      <td>{{ ctf["title"] }}</td>
+                      <td><span class="pill pill-{{ ctf['status'] }}">{{ ctf["status"] }}</span></td>
+                      <td>{{ ctf["challenge_count"] }}</td>
+                      <td>{{ ctf["completed_runs"] }}/{{ ctf["run_count"] }}</td>
+                    </tr>
+                  {% endfor %}
+                </tbody>
+              </table>
+            </div>
+          {% else %}
+            <p class="empty-state">Create a week to start syncing challenges.</p>
+          {% endif %}
+        </section>
+      </div>
+    </section>
+
+  <section class="panel admin-tab-panel" role="tabpanel" data-admin-tab-panel="setup" hidden>
     <div class="panel-head">
       <div>
         <p class="eyebrow">1. Weekly Setup</p>
@@ -93,57 +211,27 @@
     <p class="form-note">Creating a CTF week does not download or sync challenges. Use the separate sync action after creation.</p>
   </section>
 
-  <section class="panel">
+  <section class="panel admin-tab-panel" role="tabpanel" data-admin-tab-panel="settings" hidden>
     <div class="panel-head">
       <div>
         <p class="eyebrow">2. Runtime Settings</p>
         <h2>Provider keys and solver configuration</h2>
       </div>
     </div>
-    <form class="stack-form grid-form" method="post" action="{{ url_for('admin.update_settings') }}">
-      <label>
-        <span>Log Level</span>
-        <select name="log_level">
-          {% for lvl in ("DEBUG", "INFO", "WARNING", "ERROR") %}
-            <option value="{{ lvl }}" {% if runtime_settings.get('log_level', 'DEBUG') == lvl %}selected{% endif %}>{{ lvl }}</option>
-          {% endfor %}
-        </select>
-      </label>
-      <label>
-        <span>ChatGPT / OpenAI API Key{% if masked_settings.get('openai_api_key') %} · {{ masked_settings['openai_api_key'] }}{% endif %}</span>
-        <input type="password" name="openai_api_key" value="{{ '__KEEP__' if masked_settings.get('openai_api_key') else '' }}" placeholder="Paste API key">
-      </label>
-      <label>
-        <span>Anthropic API Key{% if masked_settings.get('anthropic_api_key') %} · {{ masked_settings['anthropic_api_key'] }}{% endif %}</span>
-        <input type="password" name="anthropic_api_key" value="{{ '__KEEP__' if masked_settings.get('anthropic_api_key') else '' }}" placeholder="Paste API key">
-      </label>
-      <label>
-        <span>Google API Key{% if masked_settings.get('google_api_key') %} · {{ masked_settings['google_api_key'] }}{% endif %}</span>
-        <input type="password" name="google_api_key" value="{{ '__KEEP__' if masked_settings.get('google_api_key') else '' }}" placeholder="Paste API key">
-      </label>
-      <label>
-        <span>DeepSeek API Key{% if masked_settings.get('deepseek_api_key') %} · {{ masked_settings['deepseek_api_key'] }}{% endif %}</span>
-        <input type="password" name="deepseek_api_key" value="{{ '__KEEP__' if masked_settings.get('deepseek_api_key') else '' }}" placeholder="Paste API key">
-      </label>
-      <label>
-        <span>OpenRouter API Key{% if masked_settings.get('openrouter_api_key') %} · {{ masked_settings['openrouter_api_key'] }}{% endif %}</span>
-        <input type="password" name="openrouter_api_key" value="{{ '__KEEP__' if masked_settings.get('openrouter_api_key') else '' }}" placeholder="Paste API key">
-      </label>
-      <label>
-        <span>Default Solver Tool</span>
-        <select name="solver_tool">
-          <option value="docker" {% if runtime_settings['solver_tool'] == 'docker' %}selected{% endif %}>Docker container</option>
-          <option value="opencode" {% if runtime_settings['solver_tool'] == 'opencode' %}selected{% endif %}>opencode (full agentic CLI)</option>
-          <option value="ssh" {% if runtime_settings['solver_tool'] == 'ssh' %}selected{% endif %}>SSH remote solver</option>
-        </select>
-      </label>
-
+    <form class="stack-form admin-settings-form" method="post" action="{{ url_for('admin.update_settings') }}">
+      <div class="settings-subtabs" data-settings-tabs data-active-tab="{{ active_settings_tab }}">
         <input type="hidden" name="active_settings_tab" value="{{ active_settings_tab }}" data-settings-tab-input>
+        <div class="settings-subtab-list" role="tablist" aria-label="Runtime setting groups">
+          <button type="button" class="settings-subtab-button{% if active_settings_tab == 'runtime' %} is-active{% endif %}" role="tab" aria-selected="{{ 'true' if active_settings_tab == 'runtime' else 'false' }}" data-settings-tab-button data-settings-tab="runtime">Runtime</button>
+          <button type="button" class="settings-subtab-button{% if active_settings_tab == 'providers' %} is-active{% endif %}" role="tab" aria-selected="{{ 'true' if active_settings_tab == 'providers' else 'false' }}" data-settings-tab-button data-settings-tab="providers">Providers</button>
+          <button type="button" class="settings-subtab-button{% if active_settings_tab == 'agents' %} is-active{% endif %}" role="tab" aria-selected="{{ 'true' if active_settings_tab == 'agents' else 'false' }}" data-settings-tab-button data-settings-tab="agents">Agents</button>
+          <button type="button" class="settings-subtab-button{% if active_settings_tab == 'observability' %} is-active{% endif %}" role="tab" aria-selected="{{ 'true' if active_settings_tab == 'observability' else 'false' }}" data-settings-tab-button data-settings-tab="observability">Observability</button>
+        </div>
 
         <section class="settings-subtab-panel{% if active_settings_tab == 'runtime' %} is-active{% endif %}" role="tabpanel" data-settings-tab-panel="runtime" {% if active_settings_tab != 'runtime' %}hidden{% endif %}>
           <div class="settings-subtab-copy">
             <h3>Runtime</h3>
-            <p>Core execution settings for the control plane and weekly run scheduling.</p>
+            <p>Core scheduling and execution limits.</p>
           </div>
           <div class="grid-form">
             <label>
@@ -159,54 +247,168 @@
               <input type="number" name="runner_max_parallel_runs" value="{{ runtime_settings['runner_max_parallel_runs'] }}" min="1" max="32">
             </label>
             <label>
+              <span>Max Solver Turns</span>
+              <input type="number" name="solver_max_turns" value="{{ runtime_settings['solver_max_turns'] }}" min="1" max="64">
+            </label>
+            <label>
+              <span>Command Timeout Seconds</span>
+              <input type="number" name="solver_command_timeout_seconds" value="{{ runtime_settings['solver_command_timeout_seconds'] }}" min="1" max="600">
+            </label>
+            <label>
+              <span>LLM Timeout Seconds</span>
+              <input type="number" name="solver_llm_timeout_seconds" value="{{ runtime_settings['solver_llm_timeout_seconds'] }}" min="1" max="900">
+            </label>
+            <label>
               <span>Grace Period Seconds <small>(time others get after first solve)</small></span>
               <input type="number" name="solver_grace_period_seconds" value="{{ runtime_settings['solver_grace_period_seconds'] }}" min="0" max="3600">
+            </label>
+            <label class="wide-field">
+              <span>Solver Extra Env <small>(KEY=value, one per line)</small></span>
+              <textarea name="solver_extra_env" rows="4" placeholder="EXAMPLE_FLAG=1">{{ runtime_settings.get('solver_extra_env', '') }}</textarea>
             </label>
           </div>
         </section>
 
-      <fieldset>
-        <legend>SSH solver settings</legend>
-        <label>
-          <span>SSH Target</span>
-          <input type="text" name="solver_ssh_target" value="{{ runtime_settings.get('solver_ssh_target', 'solver') }}" placeholder="solver">
-        </label>
-        <label>
-          <span>Remote Agent</span>
-          <select name="solver_ssh_agent">
-            <option value="codex" {% if runtime_settings.get('solver_ssh_agent', 'codex') == 'codex' %}selected{% endif %}>codex</option>
-            <option value="claude" {% if runtime_settings.get('solver_ssh_agent', 'codex') == 'claude' %}selected{% endif %}>claude</option>
-          </select>
-        </label>
-        <label>
-          <span>Remote Workspace Root</span>
-          <input type="text" name="solver_ssh_workspace_root" value="{{ runtime_settings.get('solver_ssh_workspace_root', '~/ctfarena-runs') }}" placeholder="~/ctfarena-runs">
-        </label>
-        <label>
-          <span>Remote Challenge Root</span>
-          <input type="text" name="solver_ssh_challenge_root" value="{{ runtime_settings.get('solver_ssh_challenge_root', '~') }}" placeholder="~">
-        </label>
-        <label>
-          <span>Extra SSH Args <small>(appended to ssh/scp, e.g. `-F ~/.ssh/config`)</small></span>
-          <input type="text" name="solver_ssh_extra_args" value="{{ runtime_settings.get('solver_ssh_extra_args', '') }}" placeholder="-F ~/.ssh/config">
-        </label>
-      </fieldset>
+        <section class="settings-subtab-panel{% if active_settings_tab == 'providers' %} is-active{% endif %}" role="tabpanel" data-settings-tab-panel="providers" {% if active_settings_tab != 'providers' %}hidden{% endif %}>
+          <div class="settings-subtab-copy">
+            <h3>Providers</h3>
+            <p>Shared API keys used by model profiles and reruns.</p>
+          </div>
+          <div class="grid-form">
+            <label>
+              <span>OpenAI API Key{% if masked_settings.get('openai_api_key') %} · {{ masked_settings['openai_api_key'] }}{% endif %}</span>
+              <input type="password" name="openai_api_key" value="{{ '__KEEP__' if masked_settings.get('openai_api_key') else '' }}" placeholder="Paste API key">
+            </label>
+            <label>
+              <span>Anthropic API Key{% if masked_settings.get('anthropic_api_key') %} · {{ masked_settings['anthropic_api_key'] }}{% endif %}</span>
+              <input type="password" name="anthropic_api_key" value="{{ '__KEEP__' if masked_settings.get('anthropic_api_key') else '' }}" placeholder="Paste API key">
+            </label>
+            <label>
+              <span>Google API Key{% if masked_settings.get('google_api_key') %} · {{ masked_settings['google_api_key'] }}{% endif %}</span>
+              <input type="password" name="google_api_key" value="{{ '__KEEP__' if masked_settings.get('google_api_key') else '' }}" placeholder="Paste API key">
+            </label>
+            <label>
+              <span>DeepSeek API Key{% if masked_settings.get('deepseek_api_key') %} · {{ masked_settings['deepseek_api_key'] }}{% endif %}</span>
+              <input type="password" name="deepseek_api_key" value="{{ '__KEEP__' if masked_settings.get('deepseek_api_key') else '' }}" placeholder="Paste API key">
+            </label>
+            <label>
+              <span>OpenRouter API Key{% if masked_settings.get('openrouter_api_key') %} · {{ masked_settings['openrouter_api_key'] }}{% endif %}</span>
+              <input type="password" name="openrouter_api_key" value="{{ '__KEEP__' if masked_settings.get('openrouter_api_key') else '' }}" placeholder="Paste API key">
+            </label>
+          </div>
+        </section>
 
-      <fieldset>
-        <legend>opencode solver settings</legend>
-        <label>
-          <span>Config Directory <small>(overrides ~/.config/opencode)</small></span>
-          <input type="text" name="opencode_config_dir" value="{{ runtime_settings['opencode_config_dir'] }}" placeholder="Leave blank for default">
-        </label>
-        <label>
-          <span>Data Directory <small>(overrides ~/.local/share/opencode)</small></span>
-          <input type="text" name="opencode_data_dir" value="{{ runtime_settings['opencode_data_dir'] }}" placeholder="Leave blank for default">
-        </label>
-        <label>
-          <span>Extra CLI Args <small>(appended to every opencode run invocation)</small></span>
-          <input type="text" name="opencode_extra_args" value="{{ runtime_settings.get('opencode_extra_args', '') }}" placeholder="e.g. --thinking">
-        </label>
-      </fieldset>
+        <section class="settings-subtab-panel{% if active_settings_tab == 'agents' %} is-active{% endif %}" role="tabpanel" data-settings-tab-panel="agents" {% if active_settings_tab != 'agents' %}hidden{% endif %}>
+          <div class="settings-subtab-copy">
+            <h3>Agents</h3>
+            <p>Default solver backend plus Docker, SSH, and OpenCode runner details.</p>
+          </div>
+          <div class="grid-form">
+            <label>
+              <span>Default Solver Tool</span>
+              <select name="solver_tool">
+                <option value="docker" {% if runtime_settings['solver_tool'] == 'docker' %}selected{% endif %}>Docker container</option>
+                <option value="opencode" {% if runtime_settings['solver_tool'] == 'opencode' %}selected{% endif %}>opencode local</option>
+                <option value="ssh" {% if runtime_settings['solver_tool'] == 'ssh' %}selected{% endif %}>SSH remote solver</option>
+              </select>
+            </label>
+            <label>
+              <span>Docker Image</span>
+              <input type="text" name="solver_image" value="{{ runtime_settings['solver_image'] }}" placeholder="ctfarena-solver:local">
+            </label>
+            <label>
+              <span>Docker Network</span>
+              <input type="text" name="solver_network" value="{{ runtime_settings['solver_network'] }}" placeholder="bridge">
+            </label>
+          </div>
+          <fieldset class="settings-fieldset">
+            <legend>SSH solver</legend>
+            <div class="grid-form">
+              <label>
+                <span>SSH Target</span>
+                <input type="text" name="solver_ssh_target" value="{{ runtime_settings.get('solver_ssh_target', 'solver') }}" placeholder="solver">
+              </label>
+              <label>
+                <span>Remote Agent</span>
+                <select name="solver_ssh_agent">
+                  <option value="codex" {% if runtime_settings.get('solver_ssh_agent', 'codex') == 'codex' %}selected{% endif %}>codex</option>
+                  <option value="claude" {% if runtime_settings.get('solver_ssh_agent', 'codex') == 'claude' %}selected{% endif %}>claude</option>
+                </select>
+              </label>
+              <label>
+                <span>Remote Workspace Root</span>
+                <input type="text" name="solver_ssh_workspace_root" value="{{ runtime_settings.get('solver_ssh_workspace_root', '~/ctfarena-runs') }}" placeholder="~/ctfarena-runs">
+              </label>
+              <label>
+                <span>Remote Challenge Root</span>
+                <input type="text" name="solver_ssh_challenge_root" value="{{ runtime_settings.get('solver_ssh_challenge_root', '~') }}" placeholder="~">
+              </label>
+              <label class="wide-field">
+                <span>Extra SSH Args <small>(appended to ssh/scp, e.g. `-F ~/.ssh/config`)</small></span>
+                <input type="text" name="solver_ssh_extra_args" value="{{ runtime_settings.get('solver_ssh_extra_args', '') }}" placeholder="-F ~/.ssh/config">
+              </label>
+            </div>
+          </fieldset>
+          <fieldset class="settings-fieldset">
+            <legend>OpenCode solver</legend>
+            <div class="grid-form">
+              <label>
+                <span>Config Directory <small>(overrides ~/.config/opencode)</small></span>
+                <input type="text" name="opencode_config_dir" value="{{ runtime_settings['opencode_config_dir'] }}" placeholder="Leave blank for default">
+              </label>
+              <label>
+                <span>Data Directory <small>(overrides ~/.local/share/opencode)</small></span>
+                <input type="text" name="opencode_data_dir" value="{{ runtime_settings['opencode_data_dir'] }}" placeholder="Leave blank for default">
+              </label>
+              <label class="wide-field">
+                <span>Extra CLI Args <small>(appended to every opencode run invocation)</small></span>
+                <input type="text" name="opencode_extra_args" value="{{ runtime_settings.get('opencode_extra_args', '') }}" placeholder="e.g. --thinking">
+              </label>
+            </div>
+          </fieldset>
+        </section>
+
+        <section class="settings-subtab-panel{% if active_settings_tab == 'observability' %} is-active{% endif %}" role="tabpanel" data-settings-tab-panel="observability" {% if active_settings_tab != 'observability' %}hidden{% endif %}>
+          <div class="settings-subtab-copy">
+            <h3>Observability</h3>
+            <p>Sentry and browser telemetry controls.</p>
+          </div>
+          <div class="grid-form">
+            <label class="inline-check">
+              <input type="checkbox" name="sentry_enabled" value="1" {% if runtime_settings.get('sentry_enabled') == '1' %}checked{% endif %}>
+              <span>Server Sentry Enabled</span>
+            </label>
+            <label class="inline-check">
+              <input type="checkbox" name="sentry_browser_enabled" value="1" {% if runtime_settings.get('sentry_browser_enabled') == '1' %}checked{% endif %}>
+              <span>Browser Sentry Enabled</span>
+            </label>
+            <label class="inline-check">
+              <input type="checkbox" name="sentry_debug_mode_default" value="1" {% if runtime_settings.get('sentry_debug_mode_default') == '1' %}checked{% endif %}>
+              <span>Debug Mode By Default</span>
+            </label>
+            <label class="wide-field">
+              <span>Browser DSN{% if masked_settings.get('sentry_browser_dsn') %} · {{ masked_settings['sentry_browser_dsn'] }}{% endif %}</span>
+              <input type="password" name="sentry_browser_dsn" value="{{ '__KEEP__' if masked_settings.get('sentry_browser_dsn') else '' }}" placeholder="Paste browser DSN">
+            </label>
+            <label>
+              <span>Trace Sample Rate</span>
+              <input type="number" step="0.01" name="sentry_traces_sample_rate" value="{{ runtime_settings['sentry_traces_sample_rate'] }}" min="0" max="1">
+            </label>
+            <label>
+              <span>Profile Sample Rate</span>
+              <input type="number" step="0.01" name="sentry_profiles_sample_rate" value="{{ runtime_settings['sentry_profiles_sample_rate'] }}" min="0" max="1">
+            </label>
+            <label>
+              <span>Replay Session Sample Rate</span>
+              <input type="number" step="0.01" name="sentry_replays_session_sample_rate" value="{{ runtime_settings['sentry_replays_session_sample_rate'] }}" min="0" max="1">
+            </label>
+            <label>
+              <span>Replay Error Sample Rate</span>
+              <input type="number" step="0.01" name="sentry_replays_on_error_sample_rate" value="{{ runtime_settings['sentry_replays_on_error_sample_rate'] }}" min="0" max="1">
+            </label>
+          </div>
+        </section>
+      </div>
 
       <div class="form-actions">
         <button type="submit">Save Settings</button>
@@ -214,7 +416,7 @@
     </form>
   </section>
 
-  <section class="panel">
+  <section class="panel admin-tab-panel" role="tabpanel" data-admin-tab-panel="models" hidden>
     <div class="panel-head">
       <div>
         <p class="eyebrow">3. Model Roster</p>
@@ -372,7 +574,7 @@
     </div>
   </section>
 
-  <section class="panel">
+  <section class="panel admin-tab-panel" role="tabpanel" data-admin-tab-panel="runs" hidden>
     <div class="panel-head">
       <div>
         <p class="eyebrow">4. Weekly Runs</p>
@@ -474,6 +676,7 @@
                         <th>Attempts</th>
                         <th>Cost</th>
                         <th>Transcript / Error</th>
+                        <th>Actions</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -500,6 +703,16 @@
                               <span class="muted-copy">waiting</span>
                             {% endif %}
                           </td>
+                          <td>
+                            <form method="post" action="{{ url_for('admin.rerun_challenge_run', challenge_run_id=challenge_run['id']) }}">
+                              <input type="hidden" name="next" value="{{ request.full_path }}">
+                              <button
+                                type="submit"
+                                class="ghost-button compact-button"
+                                {% if challenge_run["status"] in ("queued", "running") %}disabled{% endif %}
+                              >Rerun</button>
+                            </form>
+                          </td>
                         </tr>
                       {% endfor %}
                     </tbody>
@@ -521,13 +734,56 @@
       <p class="empty-state">No weekly CTFs configured yet.</p>
     {% endfor %}
   </section>
+  </section>
 {% endblock %}
 
 {% block scripts %}
   <script>
     (() => {
       const sentry = window.ctfarenaSentry;
+      const adminTabs = document.querySelector("[data-admin-tabs]");
       const settingsTabs = document.querySelector("[data-settings-tabs]");
+
+      if (adminTabs) {
+        const buttons = Array.from(adminTabs.querySelectorAll("[data-admin-tab-button]"));
+        const panels = Array.from(adminTabs.querySelectorAll("[data-admin-tab-panel]"));
+        const knownTabs = new Set(buttons.map((button) => button.dataset.adminTabButton));
+
+        function setActiveAdminTab(tabName, updateUrl = true) {
+          const nextTab = knownTabs.has(tabName) ? tabName : "overview";
+
+          for (const button of buttons) {
+            const isActive = button.dataset.adminTabButton === nextTab;
+            button.classList.toggle("is-active", isActive);
+            button.setAttribute("aria-selected", isActive ? "true" : "false");
+          }
+
+          for (const panel of panels) {
+            const isActive = panel.dataset.adminTabPanel === nextTab;
+            panel.classList.toggle("is-active", isActive);
+            panel.hidden = !isActive;
+          }
+
+          window.localStorage.setItem("ctfarena.admin.activeTab", nextTab);
+          if (updateUrl) {
+            const url = new URL(window.location.href);
+            url.hash = nextTab;
+            window.history.replaceState({}, "", url);
+          }
+        }
+
+        for (const button of buttons) {
+          button.addEventListener("click", () => {
+            const tabName = button.dataset.adminTabButton || "overview";
+            sentry?.breadcrumb("frontend.admin", "Changed admin tab", { tab: tabName });
+            setActiveAdminTab(tabName);
+          });
+        }
+
+        const hashTab = window.location.hash ? window.location.hash.slice(1) : "";
+        const storedTab = window.localStorage.getItem("ctfarena.admin.activeTab") || "";
+        setActiveAdminTab(hashTab || storedTab || "overview", false);
+      }
 
       if (settingsTabs) {
         const buttons = Array.from(settingsTabs.querySelectorAll("[data-settings-tab-button]"));

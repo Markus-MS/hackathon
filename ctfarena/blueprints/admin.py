@@ -586,15 +586,26 @@ def delete_competition_run(competition_run_id: int):
 @bp.post("/challenge-runs/<int:challenge_run_id>/rerun")
 @admin_required
 def rerun_challenge_run(challenge_run_id: int):
+    wants_json = "application/json" in request.headers.get("Accept", "")
+    next_url = request.form.get("next") or request.referrer or url_for("admin.dashboard")
     try:
         manager = current_app.extensions["competition_manager"]
         manager.rerun_challenge_run(challenge_run_id)
     except ValueError as exc:
+        if not wants_json:
+            flash(str(exc), "error")
+            return redirect(next_url)
         return jsonify({"error": str(exc)}), 404
     except Exception as exc:
         capture_exception(exc, tags={"action": "challenge_run.rerun", "challenge_run_id": challenge_run_id})
+        if not wants_json:
+            flash(str(exc), "error")
+            return redirect(next_url)
         return jsonify({"error": str(exc)}), 500
     capture_admin_action("challenge_run.rerun", status="success", payload={"challenge_run_id": challenge_run_id})
+    if not wants_json:
+        flash(f"Queued challenge rerun #{challenge_run_id}.", "success")
+        return redirect(next_url)
     return jsonify({"ok": True})
 
 

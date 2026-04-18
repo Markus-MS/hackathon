@@ -19,6 +19,7 @@
     const challengeApiUrl = {{ challenge_api_url|tojson }};
     const detailsApiUrl = {{ details_api_url|tojson }};
     const rerunBaseUrl = {{ url_for('admin.rerun_challenge_run', challenge_run_id=0)|tojson }};
+    const canRerunChallenges = {{ (session.get('is_admin') or false)|tojson }};
     const terminalControllers = new Map();
     const terminalDoneStatuses = new Set(["solved", "failed", "timed_out", "crashed", "budget_exhausted"]);
 
@@ -119,7 +120,10 @@
       btn.disabled = true;
       btn.textContent = "Queuing…";
       try {
-        const resp = await fetch(url, { method: "POST" });
+        const resp = await fetch(url, {
+          method: "POST",
+          headers: { Accept: "application/json" },
+        });
         if (!resp.ok) {
           const body = await resp.json().catch(() => ({}));
           btn.textContent = body.error || "Error";
@@ -346,7 +350,7 @@
 
       let rerunBtn = null;
       function syncRerunButton(nextRow) {
-        if (nextRow.challenge_run_id) {
+        if (canRerunChallenges && nextRow.challenge_run_id) {
           if (!rerunBtn) {
             rerunBtn = document.createElement("button");
             rerunBtn.className = "rerun-btn";
