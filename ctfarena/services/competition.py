@@ -667,6 +667,55 @@ PROVIDER_ENV_KEYS = {
 
 SOLVER_TOOLS = {"docker", "opencode", "ssh"}
 
+CATEGORY_HINTS = {
+    "crypto": """\
+CRYPTO APPROACH
+- Check the description and files for base64, hex, rot13/caesar, binary, morse, brainfuck, and XOR.
+- For RSA, inspect n/e/c for small exponent, factorable modulus, common modulus, or Wiener-style weaknesses.
+- Use Python for quick decoding, number theory, and brute force before trying broad guesses.""",
+    "web": """\
+WEB APPROACH
+- Start with curl for headers, redirects, cookies, source, robots.txt, and obvious backup/admin/api paths.
+- Test auth bypasses, IDOR, SQL injection, SSTI, file inclusion, command injection, and exposed secrets.
+- Keep requests reproducible with curl commands and save interesting responses locally.""",
+    "pwn": """\
+PWN APPROACH
+- Run file, checksec, strings, readelf, and objdump before interacting with the service.
+- Use pwntools for remote interaction, cyclic offsets, leaks, and exploit scripts.
+- Check common paths: format string, ret2libc, ROP, stack canary leaks, UAF, and tcache poisoning.""",
+    "rev": """\
+REV APPROACH
+- Start with file, strings, checksec, objdump/readelf, and look for strcmp/memcmp/key checks.
+- Use dynamic tracing with strace, ltrace, or gdb when static output is unclear.
+- Reimplement custom encodings or validation routines in Python and invert them.""",
+    "forensics": """\
+FORENSICS / STEGO APPROACH
+- Identify every artifact with file, strings, xxd, binwalk, exiftool, and archive listings.
+- For images/audio, check metadata, LSB/stego tools, spectrograms, DTMF, morse, and hidden appended data.
+- For pcaps, summarize protocols and follow HTTP/TCP streams with tshark.""",
+}
+
+MISC_CATEGORY_HINTS = """\
+MISC APPROACH
+- Try common encodings on the description and files first: base64, hex, rot13, morse, binary, URL encoding.
+- If connection info has a host and port, connect with nc or a small Python script and inspect the protocol.
+- Search local files for flag-like strings and keep small helper scripts in the challenge workspace."""
+
+
+def get_category_hints(category: object) -> str:
+    category_name = str(category or "").strip().lower()
+    hints_by_category = globals().get("CATEGORY_HINTS", {})
+    if not isinstance(hints_by_category, dict):
+        logger.warning(
+            "CATEGORY_HINTS was not a dict during workspace construction: %r",
+            type(hints_by_category).__name__,
+        )
+        return MISC_CATEGORY_HINTS
+    for key, hints in hints_by_category.items():
+        if key in category_name:
+            return str(hints)
+    return MISC_CATEGORY_HINTS
+
 
 def _record_get(record, key: str, default=None):
     if record is None:
