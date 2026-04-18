@@ -1,0 +1,365 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>CTF Autosolver</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --bg: #f3f4f7;
+      --bg-accent: #dde3ec;
+      --panel: rgba(255, 255, 255, 0.78);
+      --panel-strong: rgba(255, 255, 255, 0.92);
+      --text: #111318;
+      --muted: #6d7480;
+      --border: rgba(17, 19, 24, 0.08);
+      --shadow: 0 24px 80px rgba(19, 28, 45, 0.12);
+      --green: #34c759;
+      --orange: #ff9f0a;
+      --gray: #cfd4dc;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      font-family: "SF Pro Display", "Segoe UI", Helvetica, Arial, sans-serif;
+      background:
+        radial-gradient(circle at top left, rgba(120, 146, 186, 0.22), transparent 28%),
+        radial-gradient(circle at top right, rgba(255, 255, 255, 0.9), transparent 22%),
+        linear-gradient(180deg, var(--bg), var(--bg-accent));
+      color: var(--text);
+      padding: 28px;
+    }
+
+    main {
+      width: min(1400px, 100%);
+      margin: 0 auto;
+    }
+
+    .shell {
+      border: 1px solid rgba(255, 255, 255, 0.7);
+      border-radius: 30px;
+      background: linear-gradient(180deg, var(--panel-strong), var(--panel));
+      backdrop-filter: blur(22px);
+      box-shadow: var(--shadow);
+      overflow: hidden;
+    }
+
+    .nav {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+      padding: 18px 24px;
+      border-bottom: 1px solid var(--border);
+      background: rgba(255, 255, 255, 0.72);
+      position: sticky;
+      top: 0;
+      backdrop-filter: blur(14px);
+    }
+
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      font-size: 0.95rem;
+      font-weight: 600;
+      letter-spacing: -0.02em;
+    }
+
+    .brand-mark {
+      width: 12px;
+      height: 12px;
+      border-radius: 999px;
+      background: linear-gradient(135deg, #111318, #636b75);
+      box-shadow: 0 0 0 6px rgba(17, 19, 24, 0.04);
+    }
+
+    .playing-now {
+      display: inline-flex;
+      align-items: center;
+      gap: 10px;
+      padding: 10px 16px;
+      border-radius: 999px;
+      background: rgba(255, 255, 255, 0.88);
+      border: 1px solid rgba(52, 199, 89, 0.22);
+      color: #15331d;
+      font-size: 0.9rem;
+      font-weight: 600;
+      white-space: nowrap;
+    }
+
+    .flash-dot {
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      background: var(--green);
+      box-shadow: 0 0 0 0 rgba(52, 199, 89, 0.45);
+      animation: pulse 1.6s infinite;
+    }
+
+    .hero {
+      padding: 26px 24px 14px;
+    }
+
+    .eyebrow {
+      margin: 0 0 8px;
+      color: var(--muted);
+      font-size: 0.82rem;
+      font-weight: 700;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+    }
+
+    h1 {
+      margin: 0;
+      font-size: clamp(2rem, 4vw, 3.6rem);
+      line-height: 0.96;
+      letter-spacing: -0.05em;
+      max-width: 12ch;
+    }
+
+    .subtitle {
+      margin: 12px 0 0;
+      max-width: 58rem;
+      color: var(--muted);
+      font-size: 1rem;
+      line-height: 1.5;
+    }
+
+    .matrix-card {
+      margin: 14px 24px 24px;
+      border: 1px solid var(--border);
+      border-radius: 24px;
+      background: rgba(255, 255, 255, 0.74);
+      overflow: auto;
+    }
+
+    table {
+      width: 100%;
+      min-width: 1050px;
+      border-collapse: collapse;
+    }
+
+    thead th {
+      padding: 16px 14px;
+      border-bottom: 1px solid var(--border);
+      color: var(--muted);
+      font-size: 0.83rem;
+      font-weight: 700;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+      text-align: center;
+      background: rgba(250, 250, 252, 0.9);
+    }
+
+    thead th:first-child,
+    tbody th {
+      position: sticky;
+      left: 0;
+      z-index: 1;
+      text-align: left;
+      background: rgba(255, 255, 255, 0.95);
+    }
+
+    tbody th,
+    tbody td {
+      padding: 16px 14px;
+      border-bottom: 1px solid rgba(17, 19, 24, 0.06);
+    }
+
+    tbody th {
+      min-width: 140px;
+      font-size: 0.96rem;
+      font-weight: 600;
+      letter-spacing: -0.02em;
+    }
+
+    tbody tr:last-child th,
+    tbody tr:last-child td {
+      border-bottom: none;
+    }
+
+    td {
+      text-align: center;
+    }
+
+    .status-dot {
+      display: inline-block;
+      width: 14px;
+      height: 14px;
+      border-radius: 50%;
+      box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.55), 0 1px 6px rgba(17, 19, 24, 0.12);
+    }
+
+    .status-solved {
+      background: var(--green);
+    }
+
+    .status-trying {
+      background: var(--orange);
+    }
+
+    .status-idle {
+      background: var(--gray);
+    }
+
+    .legend {
+      display: flex;
+      gap: 18px;
+      padding: 0 24px 24px;
+      color: var(--muted);
+      font-size: 0.88rem;
+      flex-wrap: wrap;
+    }
+
+    .legend-item {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .message {
+      padding: 20px 24px 28px;
+      color: var(--muted);
+      font-size: 0.95rem;
+    }
+
+    a {
+      color: inherit;
+      text-decoration: none;
+    }
+
+    @keyframes pulse {
+      0% {
+        opacity: 0.8;
+        box-shadow: 0 0 0 0 rgba(52, 199, 89, 0.45);
+      }
+      70% {
+        opacity: 1;
+        box-shadow: 0 0 0 10px rgba(52, 199, 89, 0);
+      }
+      100% {
+        opacity: 0.8;
+        box-shadow: 0 0 0 0 rgba(52, 199, 89, 0);
+      }
+    }
+
+    @media (max-width: 860px) {
+      body {
+        padding: 16px;
+      }
+
+      .nav {
+        align-items: flex-start;
+        flex-direction: column;
+      }
+
+      .hero {
+        padding: 22px 18px 10px;
+      }
+
+      .matrix-card {
+        margin: 12px 18px 18px;
+      }
+
+      .legend,
+      .message {
+        padding-left: 18px;
+        padding-right: 18px;
+      }
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <section class="shell">
+      <nav class="nav">
+        <div class="brand">
+          <span class="brand-mark"></span>
+          <span>CTF Autosolver</span>
+        </div>
+        <div class="playing-now">
+          <span class="flash-dot"></span>
+          <span id="status-text">Loading current event...</span>
+        </div>
+      </nav>
+
+      <header class="hero">
+      </header>
+
+      <section class="matrix-card">
+        <table>
+          <thead>
+            <tr id="matrix-head">
+              <th>Model</th>
+            </tr>
+          </thead>
+          <tbody id="matrix-body">
+            <tr>
+              <td colspan="11" class="message">Loading matrix...</td>
+            </tr>
+          </tbody>
+        </table>
+      </section>
+
+      <div class="legend">
+        <span class="legend-item"><span class="status-dot status-solved"></span> Solved</span>
+        <span class="legend-item"><span class="status-dot status-trying"></span> Trying</span>
+        <span class="legend-item"><span class="status-dot status-idle"></span> Idle</span>
+      </div>
+    </section>
+  </main>
+  <script>
+    async function loadDashboard() {
+      const response = await fetch("/api/dashboard");
+      if (!response.ok) {
+        throw new Error("Failed to fetch dashboard data");
+      }
+
+      const data = await response.json();
+      document.getElementById("status-text").textContent = data.status_text;
+
+      const headRow = document.getElementById("matrix-head");
+      const body = document.getElementById("matrix-body");
+
+      for (const challenge of data.challenges) {
+        const th = document.createElement("th");
+        th.textContent = challenge;
+        headRow.appendChild(th);
+      }
+
+      body.innerHTML = "";
+
+      for (const model of data.models) {
+        const row = document.createElement("tr");
+        const label = document.createElement("th");
+        label.scope = "row";
+        label.textContent = model.name;
+        row.appendChild(label);
+
+        for (const state of model.states) {
+          const cell = document.createElement("td");
+          const dot = document.createElement("span");
+          dot.className = `status-dot status-${state}`;
+          dot.title = state;
+          cell.appendChild(dot);
+          row.appendChild(cell);
+        }
+
+        body.appendChild(row);
+      }
+    }
+
+    loadDashboard().catch((error) => {
+      const body = document.getElementById("matrix-body");
+      body.innerHTML = `<tr><td colspan="11" class="message">${error.message}</td></tr>`;
+    });
+  </script>
+</body>
+</html>

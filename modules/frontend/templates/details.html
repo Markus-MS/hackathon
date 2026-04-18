@@ -1,0 +1,89 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Autosolver Details</title>
+  <style>
+    :root {
+      --bg: #0c1117;
+      --panel: rgba(255, 255, 255, 0.06);
+      --text: #eff3f7;
+      --muted: #94a0ad;
+      --accent: #8ec5ff;
+      --border: rgba(255, 255, 255, 0.1);
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      font-family: "SF Pro Display", "Segoe UI", Helvetica, Arial, sans-serif;
+      color: var(--text);
+      background:
+        radial-gradient(circle at top, rgba(142, 197, 255, 0.14), transparent 26%),
+        linear-gradient(160deg, #0a0f14, var(--bg));
+      display: grid;
+      place-items: center;
+      padding: 2rem;
+    }
+
+    section {
+      width: min(90vw, 760px);
+      padding: 2.5rem;
+      border-radius: 28px;
+      border: 1px solid var(--border);
+      background: var(--panel);
+      backdrop-filter: blur(12px);
+      box-shadow: 0 20px 70px rgba(0, 0, 0, 0.28);
+    }
+
+    h1 {
+      margin: 0 0 0.75rem;
+      font-size: clamp(2.2rem, 6vw, 4rem);
+      letter-spacing: -0.05em;
+    }
+
+    p {
+      margin: 0 0 1rem;
+      color: var(--muted);
+      line-height: 1.7;
+      font-size: 1.05rem;
+    }
+
+    .meta {
+      display: grid;
+      gap: 12px;
+      margin: 1.5rem 0;
+    }
+
+    .meta-card {
+      padding: 14px 16px;
+      border-radius: 18px;
+      border: 1px solid var(--border);
+      background: rgba(255, 255, 255, 0.04);
+    }
+
+    a {
+      color: var(--accent);
+      text-decoration: none;
+      font-weight: bold;
+    }
+  </style>
+</head>
+<body>
+  <section>
+    <h1>Details View</h1>
+    <p>This secondary route is ready for solver metadata, logs, or challenge drill-downs. A matching JSON endpoint is available now so you can expand the page with live data later.</p>
+    <div class="meta">
+      <div class="meta-card">HTML route: <code>/details</code></div>
+      <div class="meta-card">API route: <code>/api/details</code></div>
+      <div class="meta-card">Dashboard feed: <code>/api/dashboard</code></div>
+    </div>
+    <a href="/">Back Home</a>
+  </section>
+</body>
+</html>
