@@ -33,11 +33,15 @@ SOLVED_SUBMISSION_MESSAGES = {
 
 def _is_correct_submission_response(data: dict[str, object]) -> bool:
     status = str(data.get("status") or "").strip().lower()
-    if status:
-        return status in SOLVED_SUBMISSION_STATUSES
-
     message = str(data.get("message") or "").strip().lower()
-    return message.strip(" .!:;") in SOLVED_SUBMISSION_MESSAGES
+    normalized_message = message.strip(" .!:;")
+    if status in SOLVED_SUBMISSION_STATUSES:
+        return True
+    if normalized_message in SOLVED_SUBMISSION_MESSAGES:
+        return True
+    if "already solved" in normalized_message and re.search(r"\bcorrect\b", normalized_message):
+        return True
+    return False
 
 
 @dataclass(slots=True)
