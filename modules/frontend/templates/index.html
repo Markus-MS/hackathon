@@ -83,10 +83,27 @@
         <div class="section-head">
           <div>
             <p class="eyebrow">Leaderboard</p>
-            <h2>Weighted score</h2>
           </div>
         </div>
-        <div class="leaderboard-grid" id="leaderboard-grid"></div>
+        <div class="leaderboard-table-card">
+          <table class="leaderboard-table">
+            <thead>
+              <tr>
+                <th>Rank</th>
+                <th>Model</th>
+                <th>Score</th>
+                <th>Solves</th>
+                <th>Cost</th>
+                <th>Provider</th>
+              </tr>
+            </thead>
+            <tbody id="leaderboard-body">
+              <tr>
+                <td colspan="6" class="message">Loading leaderboard...</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
       </section>
 
       <section class="archive-section">
@@ -104,6 +121,7 @@
   <script>
     const dashboardApiUrl = {{ dashboard_api_url|tojson }};
     const summaryCharts = new Map();
+    const leaderboardCharts = new Map();
 
     function setText(id, value) {
       const element = document.getElementById(id);
@@ -170,6 +188,8 @@
         options: {
           responsive: true,
           maintainAspectRatio: false,
+          circumference: 180,
+          rotation: -90,
           animation: false,
           plugins: {
             legend: {
@@ -199,6 +219,46 @@
         },
       });
       summaryCharts.set(id, chart);
+    }
+
+    function gaugeColor(percent) {
+      if (percent < 40) return "#ff453a";
+      if (percent < 70) return "#ff9f0a";
+      return "#34c759";
+    }
+
+    function renderSolveGauge(canvas, solves, attempted) {
+      const percent = attempted > 0 ? Math.round((solves / attempted) * 100) : 0;
+      const color = gaugeColor(percent);
+      const chart = new window.Chart(canvas, {
+        type: "doughnut",
+        data: {
+          labels: ["Solved", "Remaining"],
+          datasets: [
+            {
+              data: [solves, Math.max(attempted - solves, 0)],
+              backgroundColor: [color, "#e8ebef"],
+              borderWidth: 0,
+              cutout: "72%",
+              circumference: 180,
+              rotation: 270,
+            },
+          ],
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          circumference: 180,
+          rotation: 270,
+          animation: false,
+          plugins: {
+            legend: { display: false },
+            tooltip: { enabled: false },
+          },
+        },
+      });
+      leaderboardCharts.set(canvas.id, chart);
+      return percent;
     }
 
     function renderHeader(data) {
@@ -305,39 +365,63 @@
     }
 
     function renderLeaderboard(rows) {
-      const grid = document.getElementById("leaderboard-grid");
-      grid.replaceChildren();
+      const body = document.getElementById("leaderboard-body");
+      body.replaceChildren();
+      for (const chart of leaderboardCharts.values()) {
+        chart.destroy();
+      }
+      leaderboardCharts.clear();
 
       if (!rows.length) {
-        const message = document.createElement("p");
-        message.className = "message";
-        message.textContent = "No model runs have been scored yet.";
-        grid.appendChild(message);
+        const row = document.createElement("tr");
+        const cell = document.createElement("td");
+        cell.colSpan = 6;
+        cell.className = "message";
+        cell.textContent = "No model runs have been scored yet.";
+        row.appendChild(cell);
+        body.appendChild(row);
         return;
       }
 
       for (const row of rows) {
-        const card = document.createElement("article");
-        card.className = "leaderboard-card";
+        const tr = document.createElement("tr");
+        tr.className = `rank-row rank-${row.rank}`;
+        const values = [`#${row.rank}`, row.model, `${row.score} pts`];
 
-        const title = document.createElement("strong");
-        title.textContent = `#${row.rank} ${row.model}`;
-        const score = document.createElement("div");
-        score.className = "score-line";
-        appendText(score, `${row.score} pts`);
-        const solves = document.createElement("span");
-        solves.textContent = `${row.solves}/${row.attempted} solves`;
-        score.appendChild(solves);
+        for (const [index, value] of values.entries()) {
+          const cell = document.createElement("td");
+          if (index === 0) {
+            const badge = document.createElement("span");
+            badge.className = `rank-badge rank-badge-${row.rank}`;
+            badge.textContent = value;
+            cell.appendChild(badge);
+          } else {
+            cell.textContent = value;
+          }
+          tr.appendChild(cell);
+        }
 
-        const cost = document.createElement("div");
-        cost.className = "score-line";
-        appendText(cost, money(row.total_usd));
-        const provider = document.createElement("span");
-        provider.textContent = row.provider;
-        cost.appendChild(provider);
+        const gaugeCell = document.createElement("td");
+        gaugeCell.className = "solve-gauge-cell";
+        const gauge = document.createElement("div");
+        gauge.className = "solve-gauge";
+        const canvas = document.createElement("canvas");
+        canvas.id = `solve-gauge-${row.rank}`;
+        const label = document.createElement("span");
+        label.className = "solve-gauge-label";
+        gauge.append(canvas, label);
+        gaugeCell.appendChild(gauge);
+        tr.appendChild(gaugeCell);
 
-        card.append(title, score, cost);
-        grid.appendChild(card);
+        for (const value of [money(row.total_usd), row.provider]) {
+          const cell = document.createElement("td");
+          cell.textContent = value;
+          tr.appendChild(cell);
+        }
+
+        body.appendChild(tr);
+        const percent = renderSolveGauge(canvas, row.solves, row.attempted);
+        label.textContent = `${percent}%`;
       }
     }
 
