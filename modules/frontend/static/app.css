@@ -327,7 +327,7 @@ h4 {
 
 .summary-grid {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
   gap: 12px;
   margin-top: 18px;
 }
@@ -425,7 +425,7 @@ h4 {
   text-transform: uppercase;
   text-align: center;
   background: transparent;
-  height: 100px;
+  height: 130px;
   vertical-align: bottom;
 }
 

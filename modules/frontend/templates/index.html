@@ -18,10 +18,6 @@
             <span>Solved Challenges</span>
             <div class="mini-chart" aria-hidden="true"><canvas id="chart-solved"></canvas></div>
           </div>
-          <div class="summary-tile">
-            <span>Runs Active</span>
-            <div class="mini-chart" aria-hidden="true"><canvas id="chart-running"></canvas></div>
-          </div>
         </div>
       </header>
 
@@ -105,7 +101,7 @@
     }
 
     function truncateHeaderLabel(text) {
-      return text.length > 10 ? `${text.slice(0, 10)}...` : text;
+      return text.length > 16 ? `${text.slice(0, 16)}...` : text;
     }
 
     function ctfUrl(ctfId) {
@@ -338,17 +334,6 @@
       const unsolvedCells = Math.max(totalCells - solvedCells, 0);
       renderPieChart("chart-solved", ["Solved", "Remaining"], [solvedCells, unsolvedCells], ["#34c759", "#cfd4dc"]);
 
-      const activeModelCounts = data.models.map((model) => ({
-        label: model.name,
-        value: model.cells.filter((cell) => cell.kind === "trying").length,
-        color: model.color || "#cfd4dc",
-      })).filter((item) => item.value > 0);
-      renderPieChart(
-        "chart-running",
-        activeModelCounts.map((item) => item.label),
-        activeModelCounts.map((item) => item.value),
-        activeModelCounts.map((item) => item.color),
-      );
     }
 
     function renderCtfNav(data) {
