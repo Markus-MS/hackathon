@@ -4,17 +4,19 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>CTF Autosolver</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
   <style>
     :root {
       color-scheme: light;
-      --bg: #f3f4f7;
-      --bg-accent: #dde3ec;
-      --panel: rgba(255, 255, 255, 0.78);
-      --panel-strong: rgba(255, 255, 255, 0.92);
+      --bg: #fafbfe;
+      --bg-accent: #f1f4f9;
+      --panel: rgba(255, 255, 255, 0.84);
+      --panel-strong: rgba(255, 255, 255, 0.94);
       --text: #111318;
       --muted: #6d7480;
       --border: rgba(17, 19, 24, 0.08);
-      --shadow: 0 24px 80px rgba(19, 28, 45, 0.12);
       --green: #34c759;
       --orange: #ff9f0a;
       --gray: #cfd4dc;
@@ -27,13 +29,10 @@
     body {
       margin: 0;
       min-height: 100vh;
-      font-family: "SF Pro Display", "Segoe UI", Helvetica, Arial, sans-serif;
-      background:
-        radial-gradient(circle at top left, rgba(120, 146, 186, 0.22), transparent 28%),
-        radial-gradient(circle at top right, rgba(255, 255, 255, 0.9), transparent 22%),
-        linear-gradient(180deg, var(--bg), var(--bg-accent));
+      font-family: "Inter", "Segoe UI", Helvetica, Arial, sans-serif;
+      background: var(--bg);
       color: var(--text);
-      padding: 28px;
+      padding: 12px;
     }
 
     main {
@@ -43,10 +42,9 @@
 
     .shell {
       border: 1px solid rgba(255, 255, 255, 0.7);
-      border-radius: 30px;
+      border-radius: 5px;
       background: linear-gradient(180deg, var(--panel-strong), var(--panel));
       backdrop-filter: blur(22px);
-      box-shadow: var(--shadow);
       overflow: hidden;
     }
 
@@ -54,8 +52,8 @@
       display: flex;
       align-items: center;
       justify-content: space-between;
-      gap: 16px;
-      padding: 18px 24px;
+      gap: 12px;
+      padding: 10px 14px;
       border-bottom: 1px solid var(--border);
       background: rgba(255, 255, 255, 0.72);
       position: sticky;
@@ -66,8 +64,8 @@
     .brand {
       display: flex;
       align-items: center;
-      gap: 12px;
-      font-size: 0.95rem;
+      gap: 8px;
+      font-size: 0.9rem;
       font-weight: 600;
       letter-spacing: -0.02em;
     }
@@ -77,19 +75,18 @@
       height: 12px;
       border-radius: 999px;
       background: linear-gradient(135deg, #111318, #636b75);
-      box-shadow: 0 0 0 6px rgba(17, 19, 24, 0.04);
     }
 
     .playing-now {
       display: inline-flex;
       align-items: center;
-      gap: 10px;
-      padding: 10px 16px;
+      gap: 8px;
+      padding: 7px 12px;
       border-radius: 999px;
       background: rgba(255, 255, 255, 0.88);
       border: 1px solid rgba(52, 199, 89, 0.22);
       color: #15331d;
-      font-size: 0.9rem;
+      font-size: 0.84rem;
       font-weight: 600;
       white-space: nowrap;
     }
@@ -104,7 +101,7 @@
     }
 
     .hero {
-      padding: 26px 24px 14px;
+      padding: 8px 14px 4px;
     }
 
     .eyebrow {
@@ -133,9 +130,9 @@
     }
 
     .matrix-card {
-      margin: 14px 24px 24px;
+      margin: 6px 14px 10px;
       border: 1px solid var(--border);
-      border-radius: 24px;
+      border-radius: 5px;
       background: rgba(255, 255, 255, 0.74);
       overflow: auto;
     }
@@ -147,7 +144,7 @@
     }
 
     thead th {
-      padding: 16px 14px;
+      padding: 10px 10px;
       border-bottom: 1px solid var(--border);
       color: var(--muted);
       font-size: 0.83rem;
@@ -169,13 +166,13 @@
 
     tbody th,
     tbody td {
-      padding: 16px 14px;
+      padding: 10px 10px;
       border-bottom: 1px solid rgba(17, 19, 24, 0.06);
     }
 
     tbody th {
-      min-width: 140px;
-      font-size: 0.96rem;
+      min-width: 118px;
+      font-size: 0.9rem;
       font-weight: 600;
       letter-spacing: -0.02em;
     }
@@ -191,10 +188,10 @@
 
     .status-dot {
       display: inline-block;
-      width: 14px;
-      height: 14px;
+      width: 11px;
+      height: 11px;
       border-radius: 50%;
-      box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.55), 0 1px 6px rgba(17, 19, 24, 0.12);
+      box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.55);
     }
 
     .status-solved {
@@ -212,9 +209,9 @@
     .legend {
       display: flex;
       gap: 18px;
-      padding: 0 24px 24px;
+      padding: 0 14px 12px;
       color: var(--muted);
-      font-size: 0.88rem;
+      font-size: 0.82rem;
       flex-wrap: wrap;
     }
 
@@ -225,9 +222,9 @@
     }
 
     .message {
-      padding: 20px 24px 28px;
+      padding: 12px 14px 14px;
       color: var(--muted);
-      font-size: 0.95rem;
+      font-size: 0.88rem;
     }
 
     a {
@@ -252,7 +249,7 @@
 
     @media (max-width: 860px) {
       body {
-        padding: 16px;
+        padding: 8px;
       }
 
       .nav {
@@ -261,17 +258,17 @@
       }
 
       .hero {
-        padding: 22px 18px 10px;
+        padding: 6px 10px 2px;
       }
 
       .matrix-card {
-        margin: 12px 18px 18px;
+        margin: 6px 10px 10px;
       }
 
       .legend,
       .message {
-        padding-left: 18px;
-        padding-right: 18px;
+        padding-left: 10px;
+        padding-right: 10px;
       }
     }
   </style>
