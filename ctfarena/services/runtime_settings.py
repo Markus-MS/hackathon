@@ -70,3 +70,11 @@ def provider_api_key(provider: str) -> str:
     if key_name is None:
         return ""
     return get_setting(key_name, "") or ""
+
+
+def set_provider_api_key(provider: str, api_key: str) -> bool:
+    key_name = PROVIDER_KEY_SETTING.get(provider.lower())
+    if key_name is None:
+        return False
+    set_setting(key_name, api_key.strip())
+    return True

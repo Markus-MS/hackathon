@@ -1,13 +1,13 @@
 from __future__ import annotations
 
-from flask import Blueprint, current_app, flash, redirect, render_template, request, url_for
+from flask import Blueprint, current_app, flash, jsonify, redirect, render_template, request, url_for
 
 from ctfarena.auth import admin_required, is_admin_authenticated, login_admin, logout_admin
 from ctfarena.db import get_db
-from ctfarena.services import ctf_service, runtime_settings
+from ctfarena.services import ctf_service, llm_catalog, pricing, runtime_settings
 from ctfarena.services.competition import list_run_monitor
 from ctfarena.services.ctfd import CTFdClient, CTFdSyncError
-from ctfarena.utils import utc_now
+from ctfarena.utils import slugify, utc_now
 
 
 bp = Blueprint("admin", __name__, url_prefix="/admin")
@@ -54,6 +54,8 @@ def dashboard():
         for key, value in settings.items()
         if key in runtime_settings.SECRET_KEYS
     }
+    rate_keys = sorted(pricing.get_rate_table())
+    model_name_options = sorted({key.split(":", 1)[1] for key in rate_keys})
     return render_template(
         "frontend_admin/dashboard.html",
         ctfs=ctfs,
@@ -62,6 +64,8 @@ def dashboard():
         run_monitor=run_monitor,
         runtime_settings=settings,
         masked_settings=masked_settings,
+        model_name_options=model_name_options,
+        rate_key_options=rate_keys,
         active_ctf=ctf_service.get_active_ctf(db),
         admin_logged_in=is_admin_authenticated(),
     )
@@ -96,6 +100,14 @@ def update_settings():
 def update_model(model_id: int):
     db = get_db()
     updated_at = utc_now()
+    provider = request.form.get("provider", "").strip()
+    model_name = request.form.get("model_name", "").strip()
+    rate_key = request.form.get("rate_key", "").strip() or f"{provider}:{model_name}"
+    temperature = request.form.get("temperature", type=float)
+    provider_api_key = request.form.get("provider_api_key", "").strip()
+    if provider_api_key and not runtime_settings.set_provider_api_key(provider, provider_api_key):
+        flash("Unsupported provider for API key storage.", "error")
+        return redirect(url_for("admin.dashboard"))
     db.execute(
         """
         UPDATE model_profiles
@@ -113,19 +125,122 @@ def update_model(model_id: int):
         """,
         (
             request.form.get("display_name", "").strip(),
-            request.form.get("provider", "").strip(),
-            request.form.get("model_name", "").strip(),
-            request.form.get("rate_key", "").strip(),
+            provider,
+            model_name,
+            rate_key,
             request.form.get("color", "").strip() or "#0b7285",
             request.form.get("reasoning_effort", "").strip() or "high",
-            request.form.get("temperature", type=float) or 0.2,
+            0.2 if temperature is None else temperature,
             1 if request.form.get("enabled") == "1" else 0,
             updated_at,
             model_id,
         ),
     )
     db.commit()
-    flash("Model profile saved.", "success")
+    flash(
+        "Model profile saved."
+        + (" Provider API key saved." if provider_api_key else ""),
+        "success",
+    )
+    return redirect(url_for("admin.dashboard"))
+
+
+@bp.post("/llm-models")
+@admin_required
+def list_llm_models():
+    provider = request.form.get("provider", "").strip()
+    api_key = request.form.get("api_key", "").strip() or runtime_settings.provider_api_key(provider)
+    if not provider:
+        return jsonify({"error": "Provider is required."}), 400
+    if not api_key:
+        return jsonify({"error": "Paste an API key or save one in Runtime Settings first."}), 400
+
+    try:
+        models = llm_catalog.list_models(
+            provider,
+            api_key,
+            timeout=current_app.config["REQUEST_TIMEOUT_SECONDS"],
+        )
+    except llm_catalog.LLMCatalogError as exc:
+        return jsonify({"error": str(exc)}), 400
+    rate_keys = pricing.get_rate_table()
+    models = sorted(
+        models,
+        key=lambda model_name: (
+            f"{provider}:{model_name}" not in rate_keys,
+            model_name,
+        ),
+    )
+    return jsonify({"models": models})
+
+
+@bp.post("/models")
+@admin_required
+def create_model():
+    db = get_db()
+    now = utc_now()
+    provider = request.form.get("provider", "").strip()
+    model_name = request.form.get("model_name", "").strip()
+    display_name = request.form.get("display_name", "").strip()
+    slug_root = slugify(request.form.get("slug", "").strip() or display_name or model_name)
+    rate_key = request.form.get("rate_key", "").strip() or f"{provider}:{model_name}"
+    provider_api_key = request.form.get("provider_api_key", "").strip()
+
+    if not display_name or not provider or not model_name:
+        flash("Display name, provider, and model name are required.", "error")
+        return redirect(url_for("admin.dashboard"))
+    if not slug_root:
+        flash("Model slug must include at least one letter or number.", "error")
+        return redirect(url_for("admin.dashboard"))
+    if provider_api_key and not runtime_settings.set_provider_api_key(provider, provider_api_key):
+        flash("Unsupported provider for API key storage.", "error")
+        return redirect(url_for("admin.dashboard"))
+
+    slug = slug_root
+    suffix = 2
+    while db.execute("SELECT 1 FROM model_profiles WHERE slug = ?", (slug,)).fetchone():
+        slug = f"{slug_root}-{suffix}"
+        suffix += 1
+
+    temperature = request.form.get("temperature", type=float)
+    db.execute(
+        """
+        INSERT INTO model_profiles (
+            slug,
+            display_name,
+            provider,
+            model_name,
+            rate_key,
+            color,
+            reasoning_effort,
+            temperature,
+            skill_profile,
+            enabled,
+            created_at,
+            updated_at
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0.5, ?, ?, ?)
+        """,
+        (
+            slug,
+            display_name,
+            provider,
+            model_name,
+            rate_key,
+            request.form.get("color", "").strip() or "#0b7285",
+            request.form.get("reasoning_effort", "").strip() or "high",
+            0.2 if temperature is None else temperature,
+            1 if request.form.get("enabled") == "1" else 0,
+            now,
+            now,
+        ),
+    )
+    db.commit()
+    flash(
+        f"Added model profile {display_name}."
+        + (" Provider API key saved." if provider_api_key else ""),
+        "success",
+    )
     return redirect(url_for("admin.dashboard"))
 
 
@@ -202,13 +317,20 @@ def sync_ctf(ctf_id: int):
 @admin_required
 def upsert_account(ctf_id: int, model_id: int):
     db = get_db()
+    existing = ctf_service.get_ctf_account(db, ctf_id, model_id)
     username = request.form.get("username", "").strip()
     password = request.form.get("password", "").strip()
+    api_token = request.form.get("api_token", "").strip()
     team_name = request.form.get("team_name", "").strip()
     notes = request.form.get("notes", "").strip()
 
-    if not username or not password:
-        flash("Username and password are required for model accounts.", "error")
+    if existing is not None:
+        username = username or existing["username"]
+        password = password or existing["password"]
+        api_token = api_token or existing["api_token"]
+
+    if not api_token and not (username and password):
+        flash("Add a CTFd API token, or provide both username and password.", "error")
         return redirect(url_for("admin.dashboard"))
 
     ctf_service.upsert_ctf_account(
@@ -217,6 +339,7 @@ def upsert_account(ctf_id: int, model_id: int):
         model_id=model_id,
         username=username,
         password=password,
+        api_token=api_token,
         team_name=team_name,
         notes=notes,
     )
@@ -229,10 +352,12 @@ def upsert_account(ctf_id: int, model_id: int):
 def start_competition(ctf_id: int):
     try:
         manager = current_app.extensions["competition_manager"]
-        manager.start_ctf(ctf_id)
+        run_ids = manager.start_ctf(ctf_id)
     except ValueError as exc:
         flash(str(exc), "error")
         return redirect(url_for("admin.dashboard"))
 
-    flash("Competition started across four models.", "success")
+    run_count = len(run_ids)
+    noun = "model" if run_count == 1 else "models"
+    flash(f"Competition started for {run_count} {noun}.", "success")
     return redirect(url_for("admin.dashboard"))

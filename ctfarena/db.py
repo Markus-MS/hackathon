@@ -28,7 +28,26 @@ def init_db() -> None:
     db = get_db()
     schema_path = Path(current_app.root_path) / "schema.sql"
     db.executescript(schema_path.read_text(encoding="utf-8"))
+    migrate_db(db)
     db.commit()
+
+
+def migrate_db(db: sqlite3.Connection) -> None:
+    ctf_account_columns = {
+        row["name"]
+        for row in db.execute("PRAGMA table_info(ctf_accounts)").fetchall()
+    }
+    if "api_token" not in ctf_account_columns:
+        db.execute(
+            "ALTER TABLE ctf_accounts ADD COLUMN api_token TEXT NOT NULL DEFAULT ''"
+        )
+        db.execute(
+            """
+            UPDATE ctf_accounts
+            SET api_token = password
+            WHERE api_token = '' AND password LIKE 'ctfd_%'
+            """
+        )
 
 
 def get_setting(key: str, default: str | None = None) -> str | None:

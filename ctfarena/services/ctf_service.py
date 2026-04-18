@@ -189,8 +189,9 @@ def upsert_ctf_account(
     *,
     ctf_id: int,
     model_id: int,
-    username: str,
-    password: str,
+    username: str = "",
+    password: str = "",
+    api_token: str = "",
     team_name: str = "",
     notes: str = "",
 ) -> None:
@@ -202,20 +203,22 @@ def upsert_ctf_account(
             model_id,
             username,
             password,
+            api_token,
             team_name,
             notes,
             created_at,
             updated_at
         )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(ctf_event_id, model_id) DO UPDATE SET
             username = excluded.username,
             password = excluded.password,
+            api_token = excluded.api_token,
             team_name = excluded.team_name,
             notes = excluded.notes,
             updated_at = excluded.updated_at
         """,
-        (ctf_id, model_id, username, password, team_name, notes, now, now),
+        (ctf_id, model_id, username, password, api_token, team_name, notes, now, now),
     )
     db.commit()
 
@@ -226,7 +229,7 @@ def list_challenges(db: sqlite3.Connection, ctf_id: int):
         SELECT *
         FROM challenges
         WHERE ctf_event_id = ?
-        ORDER BY category, points DESC, name
+        ORDER BY solves DESC, points ASC, name
         """,
         (ctf_id,),
     ).fetchall()

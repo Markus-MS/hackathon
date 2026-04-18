@@ -51,20 +51,45 @@ class CTFdClient:
 
         challenges: list[dict[str, object]] = []
         for item in items:
-            points = int(item.get("value") or 0)
+            detail = self._fetch_challenge_detail(session, item["id"])
+            challenge = item | detail
+            points = int(challenge.get("value") or 0)
             challenges.append(
                 {
-                    "remote_id": str(item["id"]),
-                    "name": item.get("name") or f"challenge-{item['id']}",
-                    "category": item.get("category") or "misc",
+                    "remote_id": str(challenge["id"]),
+                    "name": challenge.get("name") or f"challenge-{challenge['id']}",
+                    "category": challenge.get("category") or "misc",
                     "points": points,
                     "difficulty": difficulty_from_points(points),
-                    "description": item.get("description") or "",
-                    "solves": int(item.get("solves") or 0),
-                    "connection_info": item.get("connection_info") or "",
+                    "description": challenge.get("description") or "",
+                    "solves": int(challenge.get("solves") or 0),
+                    "connection_info": challenge.get("connection_info") or "",
                 }
             )
         return challenges
+
+    def _fetch_challenge_detail(
+        self,
+        session: requests.Session,
+        challenge_id: object,
+    ) -> dict[str, object]:
+        try:
+            response = session.get(
+                f"{self.base_url.rstrip('/')}/api/v1/challenges/{challenge_id}",
+                timeout=self.timeout,
+            )
+        except requests.RequestException:
+            return {}
+        if not response.ok:
+            return {}
+        try:
+            payload = response.json()
+        except ValueError:
+            return {}
+        data = payload.get("data")
+        if not isinstance(data, dict):
+            return {}
+        return data
 
     def submit_flag(self, *, challenge_id: str, submission: str) -> dict[str, object]:
         session = self._build_session()

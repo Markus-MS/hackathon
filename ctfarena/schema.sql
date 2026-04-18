@@ -61,6 +61,7 @@ CREATE TABLE IF NOT EXISTS ctf_accounts (
     model_id INTEGER NOT NULL REFERENCES model_profiles(id) ON DELETE CASCADE,
     username TEXT NOT NULL,
     password TEXT NOT NULL,
+    api_token TEXT NOT NULL DEFAULT '',
     team_name TEXT NOT NULL DEFAULT '',
     notes TEXT NOT NULL DEFAULT '',
     created_at TEXT NOT NULL,

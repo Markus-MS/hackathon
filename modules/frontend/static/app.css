@@ -601,6 +601,38 @@ h4 {
   grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
 }
 
+.model-add-menu {
+  margin-bottom: 1rem;
+  padding: 1rem;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.74);
+}
+
+.model-add-menu summary {
+  cursor: pointer;
+  font-weight: 700;
+}
+
+.model-add-menu[open] summary {
+  margin-bottom: 1rem;
+}
+
+.model-fetch-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.model-fetch-status {
+  color: var(--muted);
+  line-height: 1.35;
+}
+
+.model-fetch-error {
+  color: #b42318;
+}
+
 .model-chip {
   display: flex;
   align-items: center;

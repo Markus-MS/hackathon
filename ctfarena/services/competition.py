@@ -48,18 +48,34 @@ from pathlib import Path
 
 
 def post_json(url, headers, payload, timeout):
-    request = urllib.request.Request(
-        url,
-        data=json.dumps(payload).encode("utf-8"),
-        headers={"Content-Type": "application/json", **headers},
-        method="POST",
-    )
-    try:
-        with urllib.request.urlopen(request, timeout=timeout) as response:
-            return json.loads(response.read().decode("utf-8"))
-    except urllib.error.HTTPError as exc:
-        body = exc.read().decode("utf-8", errors="replace")[:1200]
-        raise RuntimeError(f"provider returned HTTP {exc.code}: {body}") from exc
+    retry_codes = {429, 500, 502, 503, 504}
+    for attempt in range(3):
+        request = urllib.request.Request(
+            url,
+            data=json.dumps(payload).encode("utf-8"),
+            headers={"Content-Type": "application/json", **headers},
+            method="POST",
+        )
+        try:
+            with urllib.request.urlopen(request, timeout=timeout) as response:
+                return json.loads(response.read().decode("utf-8"))
+        except urllib.error.HTTPError as exc:
+            body = exc.read().decode("utf-8", errors="replace")[:1200]
+            if exc.code in retry_codes and attempt < 2:
+                time.sleep(2 * (attempt + 1))
+                continue
+            raise RuntimeError(f"provider returned HTTP {exc.code}: {body}") from exc
+        except TimeoutError as exc:
+            if attempt < 2:
+                time.sleep(2 * (attempt + 1))
+                continue
+            raise TimeoutError(f"provider request timed out after {timeout} seconds") from exc
+        except urllib.error.URLError as exc:
+            if attempt < 2:
+                time.sleep(2 * (attempt + 1))
+                continue
+            raise RuntimeError(f"provider request failed: {exc}") from exc
+    raise RuntimeError("provider request failed after retries")
 
 
 def extract_text_from_openai(payload):
@@ -85,6 +101,12 @@ def usage_from_openai(payload):
     }
 
 
+def openai_supports_temperature(model):
+    model = (model or "").lower()
+    unsupported_prefixes = ("gpt-5", "o1", "o3", "o4")
+    return not model.startswith(unsupported_prefixes)
+
+
 def call_openai(manifest, prompt):
     key = os.environ["FF_PROVIDER_API_KEY"]
     base_url = os.environ.get("FF_OPENAI_BASE_URL", "https://api.openai.com/v1").rstrip("/")
@@ -93,7 +115,10 @@ def call_openai(manifest, prompt):
         "input": prompt,
         "max_output_tokens": 1800,
     }
-    if manifest["model"].get("temperature") is not None:
+    if (
+        manifest["model"].get("temperature") is not None
+        and openai_supports_temperature(manifest["model"]["name"])
+    ):
         payload["temperature"] = manifest["model"]["temperature"]
     data = post_json(
         f"{base_url}/responses",
@@ -258,6 +283,7 @@ Connection info:
 
 Account username: {account.get("username", "")}
 Account password: {account.get("password", "")}
+CTFd API token: {account.get("ctfd_api_token", "")}
 Team: {account.get("team_name", "")}
 Flag pattern: {manifest["flag_regex"]}
 Previous turns:
@@ -282,7 +308,26 @@ def main():
 
     for turn in range(1, manifest["limits"]["max_turns"] + 1):
         prompt = build_prompt(manifest, history)
-        text, usage = call_provider(manifest, prompt)
+        try:
+            text, usage = call_provider(manifest, prompt)
+        except Exception as exc:
+            status = "timed_out" if isinstance(exc, TimeoutError) else "crashed"
+            history.append({"turn": turn, "provider_error": repr(exc)})
+            print(
+                json.dumps(
+                    {
+                        "status": status,
+                        "flag_candidates": candidates,
+                        "turns": len(history),
+                        "solve_time_seconds": round(time.monotonic() - started, 3),
+                        "transcript_excerpt": json.dumps(history[-4:], ensure_ascii=False)[:12000],
+                        "error_message": str(exc),
+                        **totals,
+                    },
+                    ensure_ascii=False,
+                )
+            )
+            return
         for key in totals:
             totals[key] += int(usage.get(key) or 0)
 
@@ -403,6 +448,7 @@ class DockerSolverBackend:
             "account": {
                 "username": account["username"] if account is not None else "",
                 "password": account["password"] if account is not None else "",
+                "ctfd_api_token": account["api_token"] if account is not None else "",
                 "team_name": account["team_name"] if account is not None else "",
             },
             "model": {
@@ -662,20 +708,23 @@ def _apply_budget(competition_run, result: SolverResult, cost_usd: float) -> tup
     return result.status, result.error_message
 
 
-def _verify_candidates(ctf, challenge, result: SolverResult) -> tuple[str, str, int]:
+def _verify_candidates(ctf, challenge, account, result: SolverResult) -> tuple[str, str, int]:
     if result.status in {"crashed", "timed_out"}:
         return result.status, result.error_message, 0
 
     candidates = result.flag_candidates[: int(ctf["budget_flag_attempts"])]
     if not candidates:
         return "failed", result.error_message or "Docker solver produced no flag candidates.", 0
-    if not ctf["ctfd_token"]:
-        return "crashed", "CTFd auth secret is required to verify candidate flags.", 0
+    account_token = account["api_token"] if account is not None else ""
+    auth_value = account_token or ctf["ctfd_token"]
+    auth_type = "token" if account_token else ctf["ctfd_auth_type"]
+    if not auth_value:
+        return "crashed", "CTFd API token is required to verify candidate flags.", 0
 
     client = CTFdClient(
         base_url=ctf["ctfd_url"],
-        auth_value=ctf["ctfd_token"],
-        auth_type=ctf["ctfd_auth_type"],
+        auth_value=auth_value,
+        auth_type=auth_type,
         timeout=current_app.config["REQUEST_TIMEOUT_SECONDS"],
     )
     attempts = 0
@@ -701,28 +750,44 @@ def create_competition_runs(db, ctf_id: int) -> list[int]:
         raise ValueError("Unknown CTF.")
 
     models = ctf_service.list_models(db, enabled_only=True)
-    if len(models) != 4:
-        raise ValueError("https://ctfarena.live/ competition mode expects exactly four enabled models.")
+    if not models:
+        raise ValueError("Enable at least one model profile before starting a competition.")
 
     challenges = ctf_service.list_challenges(db, ctf_id)
     if not challenges:
         raise ValueError("Sync challenges before starting a competition.")
 
-    missing_accounts = [
-        model["display_name"]
-        for model in models
-        if ctf_service.get_ctf_account(db, ctf_id, model["id"]) is None
-    ]
-    if missing_accounts:
+    ready_models = []
+    missing_api_keys = []
+    missing_accounts = []
+    for model in models:
+        has_api_key = bool(runtime_settings.provider_api_key(model["provider"]).strip())
+        has_account = ctf_service.get_ctf_account(db, ctf_id, model["id"]) is not None
+        if has_api_key and has_account:
+            ready_models.append(model)
+            continue
+        if not has_api_key:
+            missing_api_keys.append(model["display_name"])
+        if not has_account:
+            missing_accounts.append(model["display_name"])
+
+    if not ready_models:
+        details = []
+        if missing_api_keys:
+            details.append("missing provider API keys for " + ", ".join(sorted(missing_api_keys)))
+        if missing_accounts:
+            details.append("missing CTFd API tokens/accounts for " + ", ".join(sorted(missing_accounts)))
         raise ValueError(
-            "Missing CTF accounts for: " + ", ".join(sorted(missing_accounts))
+            "No enabled model is ready to run. Add a provider API key and CTFd API token "
+            "for at least one model"
+            + (": " + "; ".join(details) if details else ".")
         )
 
     run_ids: list[int] = []
     now = utc_now()
     tool_name = "ctfarena-docker"
 
-    for model in models:
+    for model in ready_models:
         existing = db.execute(
             """
             SELECT id
@@ -837,7 +902,7 @@ def serialize_competition_run(db, competition_run_id: int) -> dict[str, object] 
         FROM challenge_runs chr
         JOIN challenges ch ON ch.id = chr.challenge_id
         WHERE chr.competition_run_id = ?
-        ORDER BY ch.category, ch.points DESC, ch.name
+        ORDER BY ch.solves DESC, ch.points ASC, ch.name
         """,
         (competition_run_id,),
     ).fetchall()
@@ -902,11 +967,12 @@ def list_run_monitor(db, ctf_id: int) -> list[dict[str, object]]:
                 ch.name,
                 ch.category,
                 ch.points,
+                ch.solves,
                 ch.remote_id
             FROM challenge_runs chr
             JOIN challenges ch ON ch.id = chr.challenge_id
             WHERE chr.competition_run_id = ?
-            ORDER BY ch.category, ch.points DESC, ch.name
+            ORDER BY ch.solves DESC, ch.points ASC, ch.name
             """,
             (run["id"],),
         ).fetchall()
@@ -1094,6 +1160,7 @@ class CompetitionManager:
                         final_status, final_error, flag_attempts = _verify_candidates(
                             ctf,
                             challenge,
+                            account,
                             result,
                         )
                     ended_at = utc_now()

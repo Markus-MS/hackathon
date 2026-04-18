@@ -1,6 +1,6 @@
 # https://ctfarena.live/
 
-https://ctfarena.live/ is a Flask MVP for running a weekly CTF evaluation across four LLMs under the same budget contract, then publishing a public leaderboard and solve matrix.
+https://ctfarena.live/ is a Flask MVP for running a weekly CTF evaluation across one or more configured LLMs under the same budget contract, then publishing a public leaderboard and solve matrix.
 
 ## What Is In This Repo
 
@@ -31,10 +31,11 @@ The app is intentionally split into a small core package plus standalone modules
 - [ctfarena/schema.sql](ctfarena/schema.sql) defines the tables and the leaderboard view.
 - [ctfarena/services/ctf_service.py](ctfarena/services/ctf_service.py) handles weekly CTFs, challenges, models, and accounts.
 - [ctfarena/services/ctfd.py](ctfarena/services/ctfd.py) is the CTFd adapter.
-- [ctfarena/services/competition.py](ctfarena/services/competition.py) owns run creation and the Docker-backed four-model runner.
+- [ctfarena/services/competition.py](ctfarena/services/competition.py) owns run creation and the Docker-backed model runner.
 - [ctfarena/services/leaderboard.py](ctfarena/services/leaderboard.py) builds the ranked table and public matrix.
 - [ctfarena/telemetry.py](ctfarena/telemetry.py) centralizes optional Sentry setup and basic scrubbing.
 - [modules/frontend](modules/frontend) owns the public https://ctfarena.live/ frontend and shared admin UI templates/theme.
+- [modules/ctfarena](modules/ctfarena) provides a runnable module entrypoint for the current https://ctfarena.live/ app.
 - [modules/docker-solver](modules/docker-solver) owns the local solver image build.
 - [modules/sentry-flask-starter](modules/sentry-flask-starter) keeps the standalone Sentry demo app.
 - [modules/live-terminal](modules/live-terminal) keeps the standalone live terminal demo.
@@ -55,15 +56,21 @@ The Python entrypoints use `uv` inline script metadata, per repo instructions.
 ./serve.py
 ```
 
+You can also start the same app through the module entrypoint:
+
+```sh
+./modules/ctfarena/server.py
+```
+
 3. Open `http://127.0.0.1:8080`
 
 4. In `Admin`, configure:
 
 - provider API keys
 - Docker image/network settings
-- the four model profiles
+- the model profiles you want to run
 - CTFd URL and auth secret
-- one account per model
+- one CTFd API token/account per model you want to run
 
 Then sync challenges and start the competition.
 

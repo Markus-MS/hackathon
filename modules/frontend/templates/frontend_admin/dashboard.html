@@ -8,8 +8,8 @@
       <p class="eyebrow">Admin Control Plane</p>
       <h1>Weekly CTF orchestration</h1>
       <p class="hero-copy">
-        This panel is intentionally small: define the week, sync challenges from CTFd, attach one account to each model,
-        and start the four-run evaluation.
+        This panel is intentionally small: define the week, sync challenges from CTFd, attach accounts for the models
+        you want to run, and start the evaluation.
       </p>
     </div>
     {% if active_ctf %}
@@ -101,7 +101,7 @@
     </div>
     <form class="stack-form grid-form" method="post" action="{{ url_for('admin.update_settings') }}">
       <label>
-        <span>OpenAI API Key{% if masked_settings.get('openai_api_key') %} · {{ masked_settings['openai_api_key'] }}{% endif %}</span>
+        <span>ChatGPT / OpenAI API Key{% if masked_settings.get('openai_api_key') %} · {{ masked_settings['openai_api_key'] }}{% endif %}</span>
         <input type="password" name="openai_api_key" placeholder="Leave blank to keep existing">
       </label>
       <label>
@@ -150,9 +150,79 @@
     <div class="panel-head">
       <div>
         <p class="eyebrow">3. Model Roster</p>
-        <h2>Four configured competitors</h2>
+        <h2>Configured competitors</h2>
       </div>
     </div>
+    <datalist id="model-name-options">
+      {% for model_name in model_name_options %}
+        <option value="{{ model_name }}"></option>
+      {% endfor %}
+    </datalist>
+    <datalist id="rate-key-options">
+      {% for rate_key in rate_key_options %}
+        <option value="{{ rate_key }}"></option>
+      {% endfor %}
+    </datalist>
+    <details class="model-add-menu">
+      <summary>Add LLM model</summary>
+      <form class="stack-form grid-form" method="post" action="{{ url_for('admin.create_model') }}" data-model-add-form>
+        <label>
+          <span>Display Name</span>
+          <input type="text" name="display_name" placeholder="GPT-5 Mini" required>
+        </label>
+        <label>
+          <span>Slug</span>
+          <input type="text" name="slug" placeholder="Generated from display name">
+        </label>
+        <label>
+          <span>Provider</span>
+          <select name="provider" id="llm-provider">
+            {% for provider in ['openai', 'anthropic', 'google', 'deepseek'] %}
+              <option value="{{ provider }}">{{ provider }}</option>
+            {% endfor %}
+          </select>
+        </label>
+        <label>
+          <span>LLM API Token</span>
+          <input type="password" name="provider_api_key" id="llm-api-key" placeholder="Paste a provider token to load and save models">
+        </label>
+        <div class="model-fetch-actions">
+          <button type="button" class="ghost-button" id="load-llm-models">Load Models</button>
+          <span id="llm-model-status" class="model-fetch-status" aria-live="polite"></span>
+        </div>
+        <label class="wide-field model-select-field" id="llm-model-select-field" hidden>
+          <span>Available Models</span>
+          <select id="llm-model-select"></select>
+        </label>
+        <label>
+          <span>Model Name</span>
+          <input type="text" name="model_name" id="llm-model-name" list="model-name-options" placeholder="Load models or type a model id" required>
+        </label>
+        <label>
+          <span>Rate Key</span>
+          <input type="text" name="rate_key" id="llm-rate-key" list="rate-key-options" placeholder="Defaults to provider:model">
+        </label>
+        <label>
+          <span>Color</span>
+          <input type="text" name="color" value="#0b7285" required>
+        </label>
+        <label>
+          <span>Reasoning Effort</span>
+          <input type="text" name="reasoning_effort" value="high" required>
+        </label>
+        <label>
+          <span>Temperature</span>
+          <input type="number" step="0.01" name="temperature" value="0.2">
+        </label>
+        <label class="inline-check">
+          <input type="checkbox" name="enabled" value="1" checked>
+          <span>Enabled</span>
+        </label>
+        <div class="form-actions">
+          <button type="submit">Add Model</button>
+        </div>
+      </form>
+    </details>
     <div class="model-admin-grid">
       {% for model in models %}
         <form class="stack-form model-admin-form" method="post" action="{{ url_for('admin.update_model', model_id=model['id']) }}">
@@ -174,11 +244,15 @@
           </label>
           <label>
             <span>Model Name</span>
-            <input type="text" name="model_name" value="{{ model['model_name'] }}" required>
+            <input type="text" name="model_name" value="{{ model['model_name'] }}" list="model-name-options" required>
+          </label>
+          <label>
+            <span>Provider API Key</span>
+            <input type="password" name="provider_api_key" placeholder="Leave blank to keep existing provider key">
           </label>
           <label>
             <span>Rate Key</span>
-            <input type="text" name="rate_key" value="{{ model['rate_key'] }}" required>
+            <input type="text" name="rate_key" value="{{ model['rate_key'] }}" list="rate-key-options" placeholder="{{ model['provider'] }}:{{ model['model_name'] }}">
           </label>
           <label>
             <span>Color</span>
@@ -206,7 +280,7 @@
     <div class="panel-head">
       <div>
         <p class="eyebrow">4. Weekly Runs</p>
-        <h2>Manage events and accounts</h2>
+        <h2>Manage events and CTFd tokens</h2>
       </div>
     </div>
 
@@ -232,7 +306,8 @@
         </div>
 
         <p class="muted-copy">
-          {{ ctf["challenge_count"] }} challenges synced · {{ ctf["run_count"] }} runs created · {{ ctf["completed_runs"] }} runs completed
+          {{ ctf["challenge_count"] }} challenges synced · {{ ctf["run_count"] }} runs created · {{ ctf["completed_runs"] }} runs completed.
+          Start runs every ready enabled model. One model with a provider API key and CTFd API token is enough.
         </p>
 
         <div class="account-grid">
@@ -246,12 +321,16 @@
             <form class="stack-form account-form" method="post" action="{{ url_for('admin.upsert_account', ctf_id=ctf['id'], model_id=model['id']) }}">
               <h4>{{ model["display_name"] }}</h4>
               <label>
-                <span>Username</span>
-                <input type="text" name="username" value="{{ account.value['username'] if account.value else '' }}" required>
+                <span>CTFd API Token{% if account.value and account.value['api_token'] %} · configured{% endif %}</span>
+                <input type="password" name="api_token" placeholder="Paste a CTFd token for this model">
               </label>
               <label>
-                <span>Password</span>
-                <input type="password" name="password" value="{{ account.value['password'] if account.value else '' }}" required>
+                <span>Username</span>
+                <input type="text" name="username" value="{{ account.value['username'] if account.value else '' }}" placeholder="Optional fallback login">
+              </label>
+              <label>
+                <span>Password{% if account.value and account.value['password'] %} · configured{% endif %}</span>
+                <input type="password" name="password" placeholder="Leave blank to keep existing">
               </label>
               <label>
                 <span>Team Name</span>
@@ -261,7 +340,7 @@
                 <span>Notes</span>
                 <textarea name="notes" rows="3">{{ account.value['notes'] if account.value else '' }}</textarea>
               </label>
-              <button type="submit" class="ghost-button">Save Account</button>
+              <button type="submit" class="ghost-button">Save CTFd Token</button>
             </form>
           {% endfor %}
         </div>
@@ -331,4 +410,98 @@
       <p class="empty-state">No weekly CTFs configured yet.</p>
     {% endfor %}
   </section>
+{% endblock %}
+
+{% block scripts %}
+  <script>
+    (() => {
+      const form = document.querySelector("[data-model-add-form]");
+      if (!form) {
+        return;
+      }
+
+      const provider = document.getElementById("llm-provider");
+      const apiKey = document.getElementById("llm-api-key");
+      const loadButton = document.getElementById("load-llm-models");
+      const status = document.getElementById("llm-model-status");
+      const selectField = document.getElementById("llm-model-select-field");
+      const select = document.getElementById("llm-model-select");
+      const modelName = document.getElementById("llm-model-name");
+      const rateKey = document.getElementById("llm-rate-key");
+      const datalist = document.getElementById("model-name-options");
+
+      function setStatus(message, isError = false) {
+        status.textContent = message;
+        status.classList.toggle("model-fetch-error", isError);
+      }
+
+      function rememberModelOption(modelId) {
+        if (!datalist) {
+          return;
+        }
+        const exists = Array.from(datalist.options).some((option) => option.value === modelId);
+        if (!exists) {
+          const option = document.createElement("option");
+          option.value = modelId;
+          datalist.appendChild(option);
+        }
+      }
+
+      function applyModel(modelId) {
+        modelName.value = modelId;
+        rateKey.value = `${provider.value}:${modelId}`;
+      }
+
+      loadButton.addEventListener("click", async () => {
+        const body = new FormData();
+        body.set("provider", provider.value);
+        body.set("api_key", apiKey.value.trim());
+
+        loadButton.disabled = true;
+        selectField.hidden = true;
+        select.replaceChildren();
+        setStatus("Loading models...");
+
+        try {
+          const response = await fetch("{{ url_for('admin.list_llm_models') }}", {
+            method: "POST",
+            body,
+          });
+          const payload = await response.json();
+          if (!response.ok) {
+            throw new Error(payload.error || "Could not load models.");
+          }
+
+          for (const modelId of payload.models) {
+            const option = document.createElement("option");
+            option.value = modelId;
+            option.textContent = modelId;
+            select.appendChild(option);
+            rememberModelOption(modelId);
+          }
+
+          selectField.hidden = false;
+          if (payload.models.length) {
+            applyModel(payload.models[0]);
+          }
+          setStatus(`Loaded ${payload.models.length} models.`);
+        } catch (error) {
+          setStatus(error.message, true);
+        } finally {
+          loadButton.disabled = false;
+        }
+      });
+
+      select.addEventListener("change", () => {
+        applyModel(select.value);
+      });
+
+      provider.addEventListener("change", () => {
+        modelName.value = "";
+        rateKey.value = "";
+        selectField.hidden = true;
+        setStatus("");
+      });
+    })();
+  </script>
 {% endblock %}

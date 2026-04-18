@@ -1,5 +1,6 @@
 TEMP.md
 instance/
+flagfarm.db*
 __pycache__/
 
 # Python caches and build artifacts
