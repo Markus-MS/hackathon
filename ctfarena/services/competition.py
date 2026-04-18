@@ -985,6 +985,8 @@ PLACEHOLDER_FLAG_BODIES = {
     "flag",
     "flag_here",
     "here",
+    "pass",
+    "password",
     "placeholder",
     "redacted",
     "sample",
@@ -993,7 +995,18 @@ PLACEHOLDER_FLAG_BODIES = {
     "text",
     "value",
     "your_flag",
+    "your_password",
 }
+
+
+def _line_describes_flag_format(line: str) -> bool:
+    normalized = line.lower()
+    return (
+        "flag format" in normalized
+        or "flag pattern" in normalized
+        or ("format" in normalized and "{" in normalized and "}" in normalized)
+        or ("example" in normalized and "{" in normalized and "}" in normalized)
+    )
 
 
 def _is_plausible_flag_candidate(candidate: str) -> bool:
@@ -1032,6 +1045,14 @@ def _extract_candidates_from_text(text: str, flag_regex: str) -> list[str]:
         pattern = re.compile(r"[A-Za-z0-9_.-]+\{[^{}\n]{1,200}\}")
 
     for match in pattern.finditer(text):
+        line_start = text.rfind("\n", 0, match.start()) + 1
+        line_end = text.find("\n", match.end())
+        if line_end == -1:
+            line_end = len(text)
+        matched_line = text[line_start:line_end]
+        if _line_describes_flag_format(matched_line):
+            matched_spans.append(match.span())
+            continue
         candidate = _clean_candidate(match.group(0))
         if _is_plausible_flag_candidate(candidate):
             candidates.append(candidate)
