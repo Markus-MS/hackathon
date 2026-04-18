@@ -21,7 +21,7 @@ app = create_app()
 def main() -> None:
     app.run(
         host=os.environ.get("FLAGFARM_HOST", "127.0.0.1"),
-        port=int(os.environ.get("FLAGFARM_PORT", "5000")),
+        port=int(os.environ.get("FLAGFARM_PORT", "8080")),
         debug=os.environ.get("FLAGFARM_DEBUG", "").lower() in {"1", "true", "yes"},
     )
 
