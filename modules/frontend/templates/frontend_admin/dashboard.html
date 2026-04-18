@@ -130,9 +130,9 @@
         <input type="password" name="openrouter_api_key" value="{{ '__KEEP__' if masked_settings.get('openrouter_api_key') else '' }}" placeholder="Paste API key">
       </label>
       <label>
-        <span>Solver Tool</span>
+        <span>Default Solver Tool</span>
         <select name="solver_tool">
-          <option value="docker" {% if runtime_settings['solver_tool'] == 'docker' %}selected{% endif %}>Docker (built-in agent loop)</option>
+          <option value="docker" {% if runtime_settings['solver_tool'] == 'docker' %}selected{% endif %}>Docker container</option>
           <option value="opencode" {% if runtime_settings['solver_tool'] == 'opencode' %}selected{% endif %}>opencode (full agentic CLI)</option>
           <option value="ssh" {% if runtime_settings['solver_tool'] == 'ssh' %}selected{% endif %}>SSH remote solver</option>
         </select>
@@ -271,6 +271,15 @@
           <input type="text" name="rate_key" id="llm-rate-key" list="rate-key-options" placeholder="Defaults to provider:model">
         </label>
         <label>
+          <span>Solver Backend</span>
+          <select name="solver_tool">
+            <option value="">Use runtime default</option>
+            <option value="docker">Docker container</option>
+            <option value="opencode">opencode local</option>
+            <option value="ssh">SSH remote</option>
+          </select>
+        </label>
+        <label>
           <span>Color</span>
           <input type="text" name="color" value="#0b7285" required>
         </label>
@@ -321,6 +330,15 @@
           <label>
             <span>Rate Key</span>
             <input type="text" name="rate_key" value="{{ model['rate_key'] }}" list="rate-key-options" placeholder="{{ model['provider'] }}:{{ model['model_name'] }}">
+          </label>
+          <label>
+            <span>Solver Backend</span>
+            <select name="solver_tool">
+              <option value="" {% if not model['solver_tool'] %}selected{% endif %}>Use runtime default</option>
+              <option value="docker" {% if model['solver_tool'] == 'docker' %}selected{% endif %}>Docker container</option>
+              <option value="opencode" {% if model['solver_tool'] == 'opencode' %}selected{% endif %}>opencode local</option>
+              <option value="ssh" {% if model['solver_tool'] == 'ssh' %}selected{% endif %}>SSH remote</option>
+            </select>
           </label>
           <label>
             <span>Color</span>

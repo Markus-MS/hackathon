@@ -27,6 +27,7 @@ CREATE TABLE IF NOT EXISTS model_profiles (
     reasoning_effort TEXT NOT NULL DEFAULT 'high',
     temperature REAL NOT NULL DEFAULT 0.2,
     skill_profile REAL NOT NULL DEFAULT 0.5,
+    solver_tool TEXT NOT NULL DEFAULT '',
     enabled INTEGER NOT NULL DEFAULT 1,
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL

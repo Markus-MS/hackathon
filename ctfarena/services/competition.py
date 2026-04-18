@@ -656,6 +656,25 @@ PROVIDER_ENV_KEYS = {
     "openrouter": ("OPENROUTER_API_KEY",),
 }
 
+SOLVER_TOOLS = {"docker", "opencode", "ssh"}
+
+
+def _record_get(record, key: str, default=None):
+    if record is None:
+        return default
+    if isinstance(record, dict):
+        return record.get(key, default)
+    try:
+        if key in record.keys():
+            return record[key]
+        return default
+    except (AttributeError, KeyError, TypeError):
+        pass
+    try:
+        return record[key]
+    except (KeyError, IndexError, TypeError):
+        return default
+
 
 def _opencode_provider_id(provider: str) -> str:
     return provider.strip().lower()
@@ -681,13 +700,49 @@ def _ssh_agent_for_model(model) -> str | None:
     return None
 
 
-def _tool_name_for_settings(settings: dict[str, str]) -> str:
-    solver_tool = settings.get("solver_tool", "docker").strip().lower()
+def _normalize_solver_tool(value: object, *, fallback: str = "docker") -> str:
+    solver_tool = str(value or "").strip().lower()
+    if solver_tool in SOLVER_TOOLS:
+        return solver_tool
+    return fallback if fallback in SOLVER_TOOLS else "docker"
+
+
+def _solver_tool_for_model(model, settings: dict[str, str] | None = None) -> str:
+    settings = settings or runtime_settings.get_all()
+    global_tool = _normalize_solver_tool(
+        settings.get("solver_tool", runtime_settings.DEFAULT_SETTINGS["solver_tool"]),
+        fallback=runtime_settings.DEFAULT_SETTINGS["solver_tool"],
+    )
+    model_tool = str(_record_get(model, "solver_tool", "") or "").strip()
+    return _normalize_solver_tool(model_tool, fallback=global_tool)
+
+
+def _tool_name_for_solver_tool(solver_tool: str) -> str:
+    solver_tool = _normalize_solver_tool(solver_tool)
     if solver_tool == "opencode":
         return "opencode"
     if solver_tool == "ssh":
         return "ssh"
     return "ctfarena-docker"
+
+
+def _backend_for_solver_tool(solver_tool: str):
+    solver_tool = _normalize_solver_tool(solver_tool)
+    if solver_tool == "opencode":
+        return OpencodeSolverBackend()
+    if solver_tool == "ssh":
+        return SshSolverBackend()
+    return DockerSolverBackend()
+
+
+def _split_extra_args(value: str) -> list[str]:
+    value = str(value or "").strip()
+    if not value:
+        return []
+    try:
+        return shlex.split(value)
+    except ValueError:
+        return value.split()
 
 
 def _redact_secrets(text: str, secrets: list[str]) -> str:
@@ -1780,6 +1835,7 @@ class DockerSolverBackend:
                     _opencode_model_ref(model),
                     "--format",
                     "json",
+                    *_split_extra_args(settings.get("opencode_extra_args", "")),
                     "--title",
                     f"CTFArena: {challenge['name']}",
                     _opencode_prompt(
@@ -1955,7 +2011,12 @@ class SshSolverBackend:
                     content=f"Preparing SSH workspace for {challenge['name']}.",
                 )
                 (tmp_path / "CHALLENGE.md").write_text(
-                    _challenge_markdown(ctf=ctf, challenge=challenge, account=account),
+                    _challenge_markdown(
+                        ctf=ctf,
+                        challenge=challenge,
+                        account=account,
+                        challenge_files=[],
+                    ),
                     encoding="utf-8",
                 )
                 prompt_path = tmp_path / "prompt.txt"
@@ -2667,8 +2728,8 @@ def create_competition_runs(db, ctf_id: int, *, sentry_debug: bool = False) -> l
     missing_accounts = []
     settings = runtime_settings.get_all()
     has_opencode_auth = _has_opencode_auth(settings)
-    solver_tool = settings.get("solver_tool", "docker").strip().lower()
     for model in models:
+        solver_tool = _solver_tool_for_model(model, settings)
         account = ctf_service.get_ctf_account(db, ctf_id, model["id"])
         has_account_token = account is not None and bool(
             str(account["api_token"]).strip()
@@ -2706,7 +2767,6 @@ def create_competition_runs(db, ctf_id: int, *, sentry_debug: bool = False) -> l
 
     run_ids: list[int] = []
     now = utc_now()
-    tool_name = _tool_name_for_settings(settings)
     competition_run_columns = {
         row["name"]
         for row in db.execute("PRAGMA table_info(competition_runs)").fetchall()
@@ -2714,6 +2774,7 @@ def create_competition_runs(db, ctf_id: int, *, sentry_debug: bool = False) -> l
     has_legacy_flagfarm_commit = "flagfarm_commit" in competition_run_columns
 
     for model in ready_models:
+        tool_name = _tool_name_for_solver_tool(_solver_tool_for_model(model, settings))
         existing = db.execute(
             """
             SELECT id
@@ -2822,6 +2883,7 @@ def get_competition_run(db, competition_run_id: int):
             mp.rate_key,
             mp.reasoning_effort,
             mp.temperature,
+            mp.solver_tool,
             mp.color
         FROM competition_runs cr
         JOIN model_profiles mp ON mp.id = cr.model_id
@@ -2970,6 +3032,7 @@ def build_manifest(db, competition_run_id: int) -> dict[str, object] | None:
             "provider": run["provider"],
             "reasoning_effort": run["reasoning_effort"],
             "temperature": run["temperature"],
+            "solver_tool": _solver_tool_for_model(run),
         },
         "debug_mode": bool(run["debug_mode"]),
         "budget": {
@@ -3155,10 +3218,10 @@ class OpencodeSolverBackend:
                 "-m",
                 _opencode_model_ref(model),
             ]
-            variant = (model.get("reasoning_effort") or "").strip()
+            variant = str(_record_get(model, "reasoning_effort", "") or "").strip()
             if variant:
                 cmd += ["--variant", variant]
-            cmd += settings.get("opencode_extra_args", "").split()
+            cmd += _split_extra_args(settings.get("opencode_extra_args", ""))
             cmd.append(
                 _opencode_prompt(
                     challenge["name"],
@@ -3221,17 +3284,6 @@ class CompetitionManager:
         self._active_parallel_runs = 0
         # Keyed by ctf_id — one coordinator future per active CTF
         self._futures: dict[int, concurrent.futures.Future[None]] = {}
-        self._init_backend()
-
-    def _init_backend(self) -> None:
-        with self.app.app_context():
-            tool = runtime_settings.get_all().get("solver_tool", "docker")
-        if tool == "opencode":
-            self.backend: DockerSolverBackend | OpencodeSolverBackend | SshSolverBackend = OpencodeSolverBackend()
-        elif tool == "ssh":
-            self.backend = SshSolverBackend()
-        else:
-            self.backend = DockerSolverBackend()
 
     def rerun_challenge_run(self, challenge_run_id: int) -> None:
         """Reset a single challenge_run to queued and re-execute it asynchronously."""
@@ -3301,16 +3353,6 @@ class CompetitionManager:
                 challenge["name"],
                 model["display_name"],
             )
-
-        # Re-read solver tool at rerun time
-        with self.app.app_context():
-            tool = runtime_settings.get_all().get("solver_tool", "docker")
-        if tool == "opencode":
-            self.backend = OpencodeSolverBackend()
-        elif tool == "ssh":
-            self.backend = SshSolverBackend()
-        else:
-            self.backend = DockerSolverBackend()
 
         stop_event = threading.Event()
         first_solve_event = threading.Event()
@@ -3425,6 +3467,22 @@ class CompetitionManager:
             debug_mode = bool(competition_run["debug_mode"])
             challenge_files = ctf_service.list_challenge_files(db, challenge["id"])
             provider_api_key = runtime_settings.provider_api_key(model["provider"])
+            settings = runtime_settings.get_all()
+            solver_tool = _solver_tool_for_model(model, settings)
+            backend = _backend_for_solver_tool(solver_tool)
+            db.execute(
+                """
+                UPDATE competition_runs
+                SET tool = ?, updated_at = ?
+                WHERE id = ?
+                """,
+                (
+                    _tool_name_for_solver_tool(solver_tool),
+                    utc_now(),
+                    competition_run_id,
+                ),
+            )
+            db.commit()
             secrets = [
                 provider_api_key,
                 ctf["ctfd_token"],
@@ -3564,7 +3622,7 @@ class CompetitionManager:
                             model["display_name"],
                             attempt_number,
                             max_attempts,
-                            type(self.backend).__name__,
+                            type(backend).__name__,
                         )
                         _log_event(
                             db,
@@ -3583,6 +3641,7 @@ class CompetitionManager:
                                 "remote_id": challenge["remote_id"],
                                 "attempt": attempt_number,
                                 "max_attempts": max_attempts,
+                                "backend": solver_tool,
                             },
                         )
 
@@ -3591,7 +3650,7 @@ class CompetitionManager:
                             if previous_result is None
                             else _retry_hint_from_result(previous_result)
                         )
-                        result = self.backend.execute(
+                        result = backend.execute(
                             ctf=ctf,
                             model=model,
                             challenge=challenge,
@@ -3917,19 +3976,9 @@ class CompetitionManager:
         challenge, a grace period starts; after it expires remaining solvers are killed
         and everyone moves to the next challenge.
         """
-        # Re-read the solver_tool setting at run time so changes take effect without restart
-        with self.app.app_context():
-            tool = runtime_settings.get_all().get("solver_tool", "docker")
-        if tool == "opencode":
-            self.backend = OpencodeSolverBackend()
-        elif tool == "ssh":
-            self.backend = SshSolverBackend()
-        else:
-            self.backend = DockerSolverBackend()
-        logger.info("[competition] Using solver backend: %s", tool)
-
         with self.app.app_context():
             db = get_db()
+            settings = runtime_settings.get_all()
 
             active_run_ids = []
             for run_id in run_ids:
@@ -3961,28 +4010,46 @@ class CompetitionManager:
                 competition_run = get_competition_run(db, run_id)
                 model = ctf_service.get_model(db, competition_run["model_id"])
                 account = ctf_service.get_ctf_account(db, ctf_id, model["id"])
+                solver_tool = _solver_tool_for_model(model, settings)
+                tool_name = _tool_name_for_solver_tool(solver_tool)
+                now = utc_now()
+                db.execute(
+                    """
+                    UPDATE competition_runs
+                    SET tool = ?, updated_at = ?
+                    WHERE id = ?
+                    """,
+                    (tool_name, now, run_id),
+                )
+                db.commit()
+                competition_run = get_competition_run(db, run_id)
                 run_infos[run_id] = {
                     "competition_run": competition_run,
                     "model": model,
                     "account": account,
+                    "solver_tool": solver_tool,
                 }
                 logger.info(
                     "[competition] run_id=%d model=%s challenges=%d backend=%s",
                     run_id,
                     model["display_name"],
                     len(challenges),
-                    tool,
+                    solver_tool,
                 )
                 _log_event(
                     db,
                     competition_run_id=run_id,
                     level="info",
-                    message=f"Started {tool} run for {model['display_name']}.",
-                    details={"challenge_count": len(challenges), "model": model["model_name"], "backend": tool},
+                    message=f"Started {solver_tool} run for {model['display_name']}.",
+                    details={
+                        "challenge_count": len(challenges),
+                        "model": model["model_name"],
+                        "backend": solver_tool,
+                    },
                 )
                 metric_count("ctfarena.run.started", 1, tags={"provider": model["provider"]})
 
-        grace_seconds = max(0, runtime_settings.positive_int("solver_grace_period_seconds"))
+        grace_seconds = runtime_settings.nonnegative_int("solver_grace_period_seconds")
         for challenge in challenges:
             with self.app.app_context():
                 db = get_db()
@@ -4068,7 +4135,7 @@ class CompetitionManager:
                     db,
                     competition_run_id=run_id,
                     level="info",
-                    message=f"Completed {tool} run for {model['display_name']}.",
+                    message=f"Completed {run_infos[run_id]['solver_tool']} run for {model['display_name']}.",
                     details=_status_counts(db, run_id),
                 )
                 _refresh_run_totals(db, run_id)

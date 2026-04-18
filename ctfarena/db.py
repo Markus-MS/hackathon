@@ -41,6 +41,18 @@ def init_db() -> None:
 
 
 def migrate_db(db: sqlite3.Connection) -> None:
+    model_profile_columns = {
+        row["name"]
+        for row in db.execute("PRAGMA table_info(model_profiles)").fetchall()
+    }
+    if "solver_tool" not in model_profile_columns:
+        db.execute(
+            """
+            ALTER TABLE model_profiles
+            ADD COLUMN solver_tool TEXT NOT NULL DEFAULT ''
+            """
+        )
+
     ctf_account_columns = {
         row["name"]
         for row in db.execute("PRAGMA table_info(ctf_accounts)").fetchall()

@@ -124,6 +124,14 @@ def positive_int(key: str) -> int:
         return max(1, int(DEFAULT_SETTINGS[key]))
 
 
+def nonnegative_int(key: str) -> int:
+    try:
+        value = get_setting(key, DEFAULT_SETTINGS[key]) or DEFAULT_SETTINGS[key]
+        return max(0, int(value))
+    except (TypeError, ValueError):
+        return max(0, int(DEFAULT_SETTINGS[key]))
+
+
 def enabled(key: str) -> bool:
     value = (get_setting(key, DEFAULT_SETTINGS[key]) or DEFAULT_SETTINGS[key]).strip().lower()
     return value in {"1", "true", "yes", "on"}

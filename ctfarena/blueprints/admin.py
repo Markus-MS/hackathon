@@ -172,6 +172,7 @@ def update_model(model_id: int):
     provider = request.form.get("provider", "").strip()
     model_name = request.form.get("model_name", "").strip()
     rate_key = request.form.get("rate_key", "").strip() or f"{provider}:{model_name}"
+    solver_tool = _model_solver_tool_from_form()
     temperature = request.form.get("temperature", type=float)
     provider_api_key = request.form.get("provider_api_key", "").strip()
     if provider_api_key == "__KEEP__":
@@ -198,6 +199,7 @@ def update_model(model_id: int):
             color = ?,
             reasoning_effort = ?,
             temperature = ?,
+            solver_tool = ?,
             enabled = ?,
             updated_at = ?
         WHERE id = ?
@@ -210,6 +212,7 @@ def update_model(model_id: int):
             request.form.get("color", "").strip() or "#0b7285",
             request.form.get("reasoning_effort", "").strip() or "high",
             0.2 if temperature is None else temperature,
+            solver_tool,
             1 if request.form.get("enabled") == "1" else 0,
             updated_at,
             model_id,
@@ -288,6 +291,7 @@ def create_model():
     display_name = request.form.get("display_name", "").strip()
     slug_root = slugify(request.form.get("slug", "").strip() or display_name or model_name)
     rate_key = request.form.get("rate_key", "").strip() or f"{provider}:{model_name}"
+    solver_tool = _model_solver_tool_from_form()
     provider_api_key = request.form.get("provider_api_key", "").strip()
     if provider_api_key == "__KEEP__":
         provider_api_key = ""
@@ -328,11 +332,12 @@ def create_model():
             reasoning_effort,
             temperature,
             skill_profile,
+            solver_tool,
             enabled,
             created_at,
             updated_at
         )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0.5, ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0.5, ?, ?, ?, ?)
         """,
         (
             slug,
@@ -343,6 +348,7 @@ def create_model():
             request.form.get("color", "").strip() or "#0b7285",
             request.form.get("reasoning_effort", "").strip() or "high",
             0.2 if temperature is None else temperature,
+            solver_tool,
             1 if request.form.get("enabled") == "1" else 0,
             now,
             now,
@@ -355,6 +361,13 @@ def create_model():
         "success",
     )
     return redirect(url_for("admin.dashboard"))
+
+
+def _model_solver_tool_from_form() -> str:
+    solver_tool = request.form.get("solver_tool", "").strip().lower()
+    if solver_tool not in ("", "docker", "opencode", "ssh"):
+        return ""
+    return solver_tool
 
 
 def _ensure_provider_rate(*, provider: str, model_name: str, rate_key: str, api_key: str) -> bool:
