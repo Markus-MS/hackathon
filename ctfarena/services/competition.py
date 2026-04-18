@@ -391,13 +391,7 @@ FORENSICS / STEGO APPROACH
 - Filesystem: mount -o loop disk.img /mnt; look at hidden/deleted inodes.""",
 }
 
-
-def get_category_hints(category):
-    cat = (category or "").lower()
-    for key, hints in CATEGORY_HINTS.items():
-        if key in cat:
-            return hints
-    return """\
+MISC_CATEGORY_HINTS = """\
 MISC APPROACH
 - Try all common encodings on the description text first (base64, hex, rot13,
   brainfuck, morse, binary, URL-encode).
@@ -405,6 +399,21 @@ MISC APPROACH
 - If connection_info has a host:port, connect: nc <host> <port> and read output.
 - Google the challenge name — known CTF writeups are fair game for approach ideas.
 - Look for acrostics, steganography, hidden data in whitespace."""
+
+
+def get_category_hints(category):
+    cat = (category or "").lower()
+    hints_by_category = globals().get("CATEGORY_HINTS", {})
+    if not isinstance(hints_by_category, dict):
+        logger.warning(
+            "CATEGORY_HINTS was not a dict during prompt construction: %r",
+            type(hints_by_category).__name__,
+        )
+        return MISC_CATEGORY_HINTS
+    for key, hints in hints_by_category.items():
+        if key in cat:
+            return hints
+    return MISC_CATEGORY_HINTS
 
 
 def compact_old_history(history):
@@ -874,21 +883,7 @@ cannot solve it, write the reason to the report and leave `flags.txt` empty.
 
 
 def _opencode_agents_file(*, challenge, ctf, challenge_files) -> str:
-    category_playbook = None
-    category_name = str(challenge["category"] or "").strip().lower()
-    for key, hints in CATEGORY_HINTS.items():
-        if key in category_name:
-            category_playbook = hints
-            break
-    if category_playbook is None:
-        category_playbook = """\
-MISC APPROACH
-- Try all common encodings on the description text first (base64, hex, rot13,
-  brainfuck, morse, binary, URL-encode).
-- Use the bf.py helper: python3 /workspace/challenge/bf.py '<code>'
-- If connection_info has a host:port, connect: nc <host> <port> and read output.
-- Google the challenge name — known CTF writeups are fair game for approach ideas.
-- Look for acrostics, steganography, hidden data in whitespace."""
+    category_playbook = get_category_hints(challenge["category"])
     return f"""You are running inside CTFArena as an autonomous CTF solver.
 
 The contract for this workspace is strict:
