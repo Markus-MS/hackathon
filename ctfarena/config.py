@@ -45,5 +45,8 @@ class Config:
     RUNNER_MAX_WORKERS = int(os.environ.get("CTF_ARENA_RUNNER_MAX_WORKERS", "4"))
     REQUEST_TIMEOUT_SECONDS = int(os.environ.get("CTF_ARENA_REQUEST_TIMEOUT", "15"))
 
-    SENTRY_DSN = os.environ.get("SENTRY_DSN", "")
+    SENTRY_DSN = os.environ.get(
+        "SENTRY_DSN",
+        "https://f271196a290a90a866d33acb56d25eed@o4511239870939136.ingest.de.sentry.io/4511240223653968",
+    )
     SENTRY_ENVIRONMENT = os.environ.get("SENTRY_ENVIRONMENT", "dev")

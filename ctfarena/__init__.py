@@ -10,7 +10,7 @@ from ctfarena.blueprints.api import bp as api_bp
 from ctfarena.config import Config
 from ctfarena.db import init_app as init_db
 from ctfarena.services.competition import CompetitionManager
-from ctfarena.telemetry import init_sentry
+from ctfarena.telemetry import init_sentry, template_config
 
 
 def _truthy_env(name: str) -> bool:
@@ -39,12 +39,13 @@ def create_app(config_object: type[Config] = Config) -> Flask:
         f"ctfarena@{app.config['CTF_ARENA_COMMIT']}"
         f"+sandbox.{app.config['DEFAULT_SANDBOX_DIGEST'][-12:]}"
     )
+    init_db(app)
     init_sentry(
+        app=app,
         component="web",
         release=release,
         environment=app.config["SENTRY_ENVIRONMENT"],
     )
-    init_db(app)
 
     competition_manager = CompetitionManager(app)
     app.extensions["competition_manager"] = competition_manager
@@ -60,6 +61,7 @@ def create_app(config_object: type[Config] = Config) -> Flask:
     def inject_globals() -> dict[str, object]:
         return {
             "app_name": "https://ctfarena.live/",
+            "sentry_frontend_config": template_config(),
         }
 
     return app

@@ -110,6 +110,7 @@ CREATE TABLE IF NOT EXISTS competition_runs (
     total_flag_attempts INTEGER NOT NULL DEFAULT 0,
     total_turns INTEGER NOT NULL DEFAULT 0,
     summary_json TEXT NOT NULL DEFAULT '{}',
+    debug_mode INTEGER NOT NULL DEFAULT 0,
     started_at TEXT,
     ended_at TEXT,
     created_at TEXT NOT NULL,

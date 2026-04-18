@@ -4,6 +4,7 @@ from dataclasses import dataclass
 
 import requests
 
+from ctfarena.telemetry import metric_count, set_context, start_span
 from ctfarena.utils import difficulty_from_points
 
 
@@ -36,11 +37,17 @@ class CTFdClient:
 
     def fetch_challenges(self) -> list[dict[str, object]]:
         session = self._build_session()
-        response = session.get(
-            f"{self.base_url.rstrip('/')}/api/v1/challenges",
-            timeout=self.timeout,
-        )
+        with start_span(
+            op="ctfd.fetch",
+            name="ctfd.fetch_challenges",
+            attributes={"ctfd_url": self.base_url, "auth_type": self.auth_type},
+        ):
+            response = session.get(
+                f"{self.base_url.rstrip('/')}/api/v1/challenges",
+                timeout=self.timeout,
+            )
         if not response.ok:
+            metric_count("ctfarena.ctfd.fetch.error", 1, tags={"status_code": str(response.status_code)})
             raise CTFdSyncError(
                 f"CTFd sync failed with {response.status_code}: {response.text[:200]}"
             )
@@ -66,6 +73,8 @@ class CTFdClient:
                     "connection_info": challenge.get("connection_info") or "",
                 }
             )
+        set_context("ctfd_fetch", {"challenge_count": len(challenges), "auth_type": self.auth_type})
+        metric_count("ctfarena.ctfd.fetch.success", 1, tags={"auth_type": self.auth_type})
         return challenges
 
     def _fetch_challenge_detail(
@@ -93,12 +102,18 @@ class CTFdClient:
 
     def submit_flag(self, *, challenge_id: str, submission: str) -> dict[str, object]:
         session = self._build_session()
-        response = session.post(
-            f"{self.base_url.rstrip('/')}/api/v1/challenges/attempt",
-            json={"challenge_id": int(challenge_id), "submission": submission},
-            timeout=self.timeout,
-        )
+        with start_span(
+            op="ctfd.submit",
+            name="ctfd.submit_flag",
+            attributes={"challenge_id": challenge_id, "auth_type": self.auth_type},
+        ):
+            response = session.post(
+                f"{self.base_url.rstrip('/')}/api/v1/challenges/attempt",
+                json={"challenge_id": int(challenge_id), "submission": submission},
+                timeout=self.timeout,
+            )
         if not response.ok:
+            metric_count("ctfarena.ctfd.submit.error", 1, tags={"status_code": str(response.status_code)})
             raise CTFdSubmitError(
                 f"CTFd submission failed with {response.status_code}: {response.text[:200]}"
             )

@@ -53,6 +53,18 @@ def migrate_db(db: sqlite3.Connection) -> None:
             """
         )
 
+    competition_run_columns = {
+        row["name"]
+        for row in db.execute("PRAGMA table_info(competition_runs)").fetchall()
+    }
+    if "debug_mode" not in competition_run_columns:
+        db.execute(
+            """
+            ALTER TABLE competition_runs
+            ADD COLUMN debug_mode INTEGER NOT NULL DEFAULT 0
+            """
+        )
+
 
 def get_setting(key: str, default: str | None = None) -> str | None:
     row = get_db().execute(

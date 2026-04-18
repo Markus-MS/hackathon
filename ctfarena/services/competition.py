@@ -12,12 +12,20 @@ import uuid
 from dataclasses import dataclass
 from pathlib import Path
 
-import sentry_sdk
 from flask import Flask, current_app
 
 from ctfarena.db import get_db
 from ctfarena.services import ctf_service, pricing, runtime_settings
 from ctfarena.services.ctfd import CTFdClient, CTFdSubmitError
+from ctfarena.telemetry import (
+    add_breadcrumb,
+    capture_exception,
+    capture_message,
+    metric_count,
+    metric_distribution,
+    set_context,
+    start_span,
+)
 from ctfarena.utils import utc_now
 
 
@@ -655,6 +663,12 @@ class DockerSolverBackend:
         settings = runtime_settings.get_all()
         api_key = runtime_settings.provider_api_key(model["provider"])
         if not api_key and not _has_opencode_auth(settings):
+            capture_message(
+                f"Missing provider API key for {model['provider']}",
+                level="warning",
+                tags={"provider": model["provider"], "model_slug": model["slug"]},
+                context={"challenge_name": challenge["name"], "competition_run_id": competition_run["id"]},
+            )
             return SolverResult(
                 status="crashed",
                 input_tokens=0,
@@ -757,132 +771,152 @@ class DockerSolverBackend:
         ]
 
         container_name = f"ctfarena-{uuid.uuid4().hex[:12]}"
+        started = time.monotonic()
 
-        with tempfile.TemporaryDirectory(prefix="ctfarena-solver-") as tmp:
-            tmp_path = Path(tmp)
-            challenge_path = tmp_path / "challenge"
-            result_path = tmp_path / "result"
-            challenge_path.mkdir()
-            result_path.mkdir()
-            (tmp_path / ".cache").mkdir()
-            (tmp_path / ".state").mkdir()
-            (challenge_path / "CHALLENGE.md").write_text(
-                _challenge_markdown(ctf=ctf, challenge=challenge, account=account),
-                encoding="utf-8",
+        with start_span(
+            op="docker.solver",
+            name="docker.solver.execute",
+            attributes={
+                "competition_run_id": competition_run["id"],
+                "challenge_id": challenge["id"],
+                "solver_image": settings["solver_image"],
+                "solver_network": settings["solver_network"],
+            },
+        ):
+            set_context(
+                "docker_solver",
+                {
+                    "competition_run_id": competition_run["id"],
+                    "challenge_name": challenge["name"],
+                    "provider": model["provider"],
+                    "timeout_seconds": timeout_seconds,
+                },
             )
-            (challenge_path / "AGENTS.md").write_text(
-                _opencode_agents_file(),
-                encoding="utf-8",
-            )
+            with tempfile.TemporaryDirectory(prefix="ctfarena-solver-") as tmp:
+                tmp_path = Path(tmp)
+                challenge_path = tmp_path / "challenge"
+                result_path = tmp_path / "result"
+                challenge_path.mkdir()
+                result_path.mkdir()
+                (tmp_path / ".cache").mkdir()
+                (tmp_path / ".state").mkdir()
+                (challenge_path / "CHALLENGE.md").write_text(
+                    _challenge_markdown(ctf=ctf, challenge=challenge, account=account),
+                    encoding="utf-8",
+                )
+                (challenge_path / "AGENTS.md").write_text(
+                    _opencode_agents_file(),
+                    encoding="utf-8",
+                )
 
-            volume_args = ["-v", f"{tmp_path}:/workspace"]
-            for setting_key, container_path in (
-                ("opencode_config_dir", "/root/.config/opencode"),
-                ("opencode_data_dir", "/root/.local/share/opencode"),
-            ):
-                host_path_value = settings.get(setting_key, "").strip()
-                if not host_path_value:
-                    continue
-                host_path = Path(host_path_value).expanduser().resolve()
-                if not host_path.exists():
-                    return SolverResult(
-                        status="crashed",
-                        input_tokens=0,
-                        output_tokens=0,
-                        reasoning_tokens=0,
-                        cached_input_tokens=0,
-                        flag_attempts=0,
-                        turns=0,
-                        solve_time_seconds=None,
-                        transcript_excerpt="",
-                        flag_candidates=[],
-                        error_message=f"Configured OpenCode path does not exist: {host_path}",
-                    )
-                volume_args.extend(["-v", f"{host_path}:{container_path}:ro"])
+                volume_args = ["-v", f"{tmp_path}:/workspace"]
+                for setting_key, container_path in (
+                    ("opencode_config_dir", "/root/.config/opencode"),
+                    ("opencode_data_dir", "/root/.local/share/opencode"),
+                ):
+                    host_path_value = settings.get(setting_key, "").strip()
+                    if not host_path_value:
+                        continue
+                    host_path = Path(host_path_value).expanduser().resolve()
+                    if not host_path.exists():
+                        return SolverResult(
+                            status="crashed",
+                            input_tokens=0,
+                            output_tokens=0,
+                            reasoning_tokens=0,
+                            cached_input_tokens=0,
+                            flag_attempts=0,
+                            turns=0,
+                            solve_time_seconds=None,
+                            transcript_excerpt="",
+                            flag_candidates=[],
+                            error_message=f"Configured OpenCode path does not exist: {host_path}",
+                        )
+                    volume_args.extend(["-v", f"{host_path}:{container_path}:ro"])
 
-            command = [
-                "docker",
-                "run",
-                "--rm",
-                "--name",
-                container_name,
-                "--network",
-                settings["solver_network"],
-                "--cpus",
-                "2",
-                "--memory",
-                "2g",
-                *env_args,
-                *volume_args,
-                "-w",
-                "/workspace/challenge",
-                settings["solver_image"],
-                "opencode",
-                "run",
-                "--model",
-                _opencode_model_ref(model),
-                "--format",
-                "json",
-                "--title",
-                f"CTFArena: {challenge['name']}",
-                _opencode_prompt(challenge["name"]),
-            ]
+                command = [
+                    "docker",
+                    "run",
+                    "--rm",
+                    "--name",
+                    container_name,
+                    "--network",
+                    settings["solver_network"],
+                    "--cpus",
+                    "2",
+                    "--memory",
+                    "2g",
+                    *env_args,
+                    *volume_args,
+                    "-w",
+                    "/workspace/challenge",
+                    settings["solver_image"],
+                    "opencode",
+                    "run",
+                    "--model",
+                    _opencode_model_ref(model),
+                    "--format",
+                    "json",
+                    "--title",
+                    f"CTFArena: {challenge['name']}",
+                    _opencode_prompt(challenge["name"]),
+                ]
 
-            proc = subprocess.Popen(
-                command,
-                env=env,
-                text=True,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-            )
+                proc = subprocess.Popen(
+                    command,
+                    env=env,
+                    text=True,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                )
 
-            # Drain stdout/stderr in background threads to avoid pipe buffer deadlocks
-            stdout_buf: list[str] = []
-            stderr_buf: list[str] = []
+                stdout_buf: list[str] = []
+                stderr_buf: list[str] = []
 
-            def _drain_stdout() -> None:
-                assert proc.stdout is not None
-                stdout_buf.append(proc.stdout.read())
+                def _drain_stdout() -> None:
+                    assert proc.stdout is not None
+                    stdout_buf.append(proc.stdout.read())
 
-            def _drain_stderr() -> None:
-                assert proc.stderr is not None
-                stderr_buf.append(proc.stderr.read())
+                def _drain_stderr() -> None:
+                    assert proc.stderr is not None
+                    stderr_buf.append(proc.stderr.read())
 
-            t_out = threading.Thread(target=_drain_stdout, daemon=True)
-            t_err = threading.Thread(target=_drain_stderr, daemon=True)
-            t_out.start()
-            t_err.start()
+                t_out = threading.Thread(target=_drain_stdout, daemon=True)
+                t_err = threading.Thread(target=_drain_stderr, daemon=True)
+                t_out.start()
+                t_err.start()
 
-            deadline = time.monotonic() + timeout_seconds
-            stop_reason: str | None = None
-            while proc.poll() is None:
-                if time.monotonic() > deadline:
-                    stop_reason = "wall_clock"
-                    subprocess.run(["docker", "kill", container_name], capture_output=True)
-                    break
-                if stop_event is not None and stop_event.is_set():
-                    stop_reason = "grace_period"
-                    subprocess.run(["docker", "kill", container_name], capture_output=True)
-                    break
-                time.sleep(2)
+                deadline = time.monotonic() + timeout_seconds
+                stop_reason: str | None = None
+                while proc.poll() is None:
+                    if time.monotonic() > deadline:
+                        stop_reason = "wall_clock"
+                        subprocess.run(["docker", "kill", container_name], capture_output=True)
+                        break
+                    if stop_event is not None and stop_event.is_set():
+                        stop_reason = "grace_period"
+                        subprocess.run(["docker", "kill", container_name], capture_output=True)
+                        break
+                    time.sleep(2)
 
-            t_out.join(timeout=15)
-            t_err.join(timeout=15)
-            stdout = "".join(stdout_buf)
-            stderr = "".join(stderr_buf)
-            proc.wait()
-            elapsed = round(time.monotonic() - started, 3)
-            transcript = _redact_secrets(
-                ((stdout or "") + "\n" + (stderr or ""))[-12000:],
-                secrets,
-            )
-            candidates = _collect_flag_candidates(
-                result_path,
-                flag_regex=ctf["flag_regex"],
-                transcript=transcript,
-            )
+                t_out.join(timeout=15)
+                t_err.join(timeout=15)
+                stdout = "".join(stdout_buf)
+                stderr = "".join(stderr_buf)
+                proc.wait()
+                elapsed = round(time.monotonic() - started, 3)
+                transcript = _redact_secrets(
+                    ((stdout or "") + "\n" + (stderr or ""))[-12000:],
+                    secrets,
+                )
+                candidates = _collect_flag_candidates(
+                    result_path,
+                    flag_regex=ctf["flag_regex"],
+                    transcript=transcript,
+                )
 
         if stop_reason == "wall_clock":
+            metric_count("ctfarena.docker.timeout", 1, tags={"provider": model["provider"]})
             return SolverResult(
                 status="timed_out",
                 input_tokens=0,
@@ -897,6 +931,7 @@ class DockerSolverBackend:
                 error_message="Docker solver exceeded its wall-clock timeout.",
             )
         if stop_reason == "grace_period":
+            metric_count("ctfarena.docker.stopped", 1, tags={"provider": model["provider"]})
             return SolverResult(
                 status="timed_out",
                 input_tokens=0,
@@ -912,6 +947,7 @@ class DockerSolverBackend:
             )
 
         if proc.returncode != 0 and not candidates:
+            metric_count("ctfarena.docker.crash", 1, tags={"provider": model["provider"]})
             return SolverResult(
                 status="crashed",
                 input_tokens=0,
@@ -926,6 +962,11 @@ class DockerSolverBackend:
                 error_message=transcript[-4000:] or f"OpenCode exited with {proc.returncode}.",
             )
 
+        metric_distribution(
+            "ctfarena.solver.turns",
+            1 if transcript or candidates else 0,
+            tags={"provider": model["provider"], "challenge_id": str(challenge["id"])},
+        )
         return SolverResult(
             status="completed" if candidates else "failed",
             input_tokens=0,
@@ -966,7 +1007,7 @@ def _log_event(
     level: str = "info",
     message: str,
     details: dict[str, object] | None = None,
-) -> None:
+    ) -> None:
     db.execute(
         """
         INSERT INTO run_events (
@@ -989,6 +1030,21 @@ def _log_event(
         ),
     )
     db.commit()
+    add_breadcrumb(
+        category="competition.event",
+        message=message,
+        level=level,
+        data={
+            "competition_run_id": competition_run_id,
+            "challenge_run_id": challenge_run_id,
+            **(details or {}),
+        },
+    )
+    metric_count(
+        "ctfarena.run_event",
+        1,
+        tags={"level": level, "competition_run_id": str(competition_run_id)},
+    )
 
 
 def _refresh_run_totals(db, competition_run_id: int) -> None:
@@ -1038,6 +1094,11 @@ def _refresh_run_totals(db, competition_run_id: int) -> None:
         ),
     )
     db.commit()
+    metric_distribution(
+        "ctfarena.run.total_cost_usd",
+        float(totals["total_cost_usd"] or 0.0),
+        tags={"competition_run_id": str(competition_run_id)},
+    )
 
 
 def _apply_budget(competition_run, result: SolverResult, cost_usd: float) -> tuple[str, str]:
@@ -1091,14 +1152,20 @@ def _verify_candidates(ctf, challenge, account, result: SolverResult) -> tuple[s
                 submission=candidate,
             )
         except CTFdSubmitError as exc:
+            capture_exception(
+                exc,
+                tags={"component": "ctfd", "challenge_id": challenge["remote_id"]},
+                context={"challenge_name": challenge["name"], "attempt": attempts},
+            )
             return "crashed", str(exc), attempts
         last_message = str(response.get("message") or response.get("status") or "")
         if response["correct"]:
+            metric_count("ctfarena.challenge.solve", 1, tags={"challenge_id": str(challenge["id"])})
             return "solved", f"Accepted candidate on attempt {attempts}.", attempts
     return "failed", last_message or "No candidate was accepted by CTFd.", attempts
 
 
-def create_competition_runs(db, ctf_id: int) -> list[int]:
+def create_competition_runs(db, ctf_id: int, *, sentry_debug: bool = False) -> list[int]:
     ctf = ctf_service.get_ctf(db, ctf_id)
     if ctf is None:
         raise ValueError("Unknown CTF.")
@@ -1182,10 +1249,11 @@ def create_competition_runs(db, ctf_id: int) -> list[int]:
                     budget_output_tokens,
                     budget_usd,
                     budget_flag_attempts,
+                    debug_mode,
                     created_at,
                     updated_at
                 )
-                VALUES (?, ?, 'competition', ?, ?, '', ?, ?, ?, 'queued', ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, 'competition', ?, ?, '', ?, ?, ?, 'queued', ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     ctf_id,
@@ -1200,6 +1268,7 @@ def create_competition_runs(db, ctf_id: int) -> list[int]:
                     ctf["budget_output_tokens"],
                     ctf["budget_usd"],
                     ctf["budget_flag_attempts"],
+                    1 if sentry_debug else 0,
                     now,
                     now,
                 ),
@@ -1207,6 +1276,14 @@ def create_competition_runs(db, ctf_id: int) -> list[int]:
             competition_run_id = int(cursor.lastrowid)
         else:
             competition_run_id = int(existing["id"])
+            db.execute(
+                """
+                UPDATE competition_runs
+                SET debug_mode = ?, updated_at = ?
+                WHERE id = ?
+                """,
+                (1 if sentry_debug else 0, now, competition_run_id),
+            )
 
         for challenge in challenges:
             db.execute(
@@ -1284,6 +1361,7 @@ def serialize_competition_run(db, competition_run_id: int) -> dict[str, object] 
         },
         "status": run["status"],
         "tool": run["tool"],
+        "debug_mode": bool(run["debug_mode"]),
         "started_at": run["started_at"],
         "ended_at": run["ended_at"],
         "budget": {
@@ -1388,6 +1466,7 @@ def build_manifest(db, competition_run_id: int) -> dict[str, object] | None:
             "reasoning_effort": run["reasoning_effort"],
             "temperature": run["temperature"],
         },
+        "debug_mode": bool(run["debug_mode"]),
         "budget": {
             "wall_seconds": run["budget_wall_seconds"],
             "input_tokens": run["budget_input_tokens"],
@@ -1442,10 +1521,16 @@ class CompetitionManager:
             self._submit_ctf(ctf_id, run_ids)
         return all_run_ids
 
-    def start_ctf(self, ctf_id: int, *, synchronous: bool = False) -> list[int]:
+    def start_ctf(
+        self,
+        ctf_id: int,
+        *,
+        synchronous: bool = False,
+        sentry_debug: bool = False,
+    ) -> list[int]:
         with self.app.app_context():
             db = get_db()
-            run_ids = create_competition_runs(db, ctf_id)
+            run_ids = create_competition_runs(db, ctf_id, sentry_debug=sentry_debug)
 
         if synchronous:
             self._run_ctf(ctf_id, run_ids)
@@ -1636,7 +1721,15 @@ class CompetitionManager:
                     first_solve_event.set()
 
             except Exception as exc:
-                sentry_sdk.capture_exception(exc)
+                capture_exception(
+                    exc,
+                    tags={
+                        "competition_run_id": competition_run_id,
+                        "challenge_id": challenge["id"],
+                        "provider": model["provider"],
+                    },
+                    context={"challenge_name": challenge["name"]},
+                )
                 ended_at = utc_now()
                 db.execute(
                     """
@@ -1716,6 +1809,7 @@ class CompetitionManager:
                     message=f"Started Docker run for {model['display_name']}.",
                     details={"challenge_count": len(challenges), "model": model["model_name"]},
                 )
+                metric_count("ctfarena.run.started", 1, tags={"provider": model["provider"]})
 
         grace_seconds = max(0, runtime_settings.positive_int("solver_grace_period_seconds"))
 
@@ -1799,6 +1893,11 @@ class CompetitionManager:
                     (finished_at, finished_at, run_id),
                 )
                 db.commit()
+                metric_count(
+                    "ctfarena.run.completed",
+                    1,
+                    tags={"provider": model["provider"], "debug_mode": str(int(bool(run["debug_mode"])))},
+                )
                 _log_event(
                     db,
                     competition_run_id=run_id,

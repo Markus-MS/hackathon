@@ -6,12 +6,18 @@ import sqlite3
 from ctfarena.db import get_setting, set_setting
 
 
+DEFAULT_SENTRY_DSN = (
+    "https://f271196a290a90a866d33acb56d25eed@o4511239870939136.ingest.de.sentry.io/4511240223653968"
+)
+
+
 SECRET_KEYS = {
     "openai_api_key",
     "anthropic_api_key",
     "google_api_key",
     "deepseek_api_key",
     "openrouter_api_key",
+    "sentry_browser_dsn",
 }
 
 DEFAULT_SETTINGS = {
@@ -25,6 +31,14 @@ DEFAULT_SETTINGS = {
     "solver_extra_env": "",
     "opencode_config_dir": "",
     "opencode_data_dir": "",
+    "sentry_enabled": "1",
+    "sentry_browser_enabled": "0",
+    "sentry_browser_dsn": DEFAULT_SENTRY_DSN,
+    "sentry_traces_sample_rate": "0.95",
+    "sentry_profiles_sample_rate": "0.5",
+    "sentry_replays_session_sample_rate": "0.1",
+    "sentry_replays_on_error_sample_rate": "1.0",
+    "sentry_debug_mode_default": "0",
     "openai_api_key": "",
     "anthropic_api_key": "",
     "google_api_key": "",
@@ -40,6 +54,13 @@ NON_EMPTY_SETTINGS = {
     "solver_command_timeout_seconds",
     "solver_llm_timeout_seconds",
     "solver_grace_period_seconds",
+    "sentry_enabled",
+    "sentry_browser_enabled",
+    "sentry_traces_sample_rate",
+    "sentry_profiles_sample_rate",
+    "sentry_replays_session_sample_rate",
+    "sentry_replays_on_error_sample_rate",
+    "sentry_debug_mode_default",
 }
 
 PROVIDER_KEY_SETTING = {
@@ -84,6 +105,19 @@ def positive_int(key: str) -> int:
         return max(1, int(value))
     except (TypeError, ValueError):
         return max(1, int(DEFAULT_SETTINGS[key]))
+
+
+def enabled(key: str) -> bool:
+    value = (get_setting(key, DEFAULT_SETTINGS[key]) or DEFAULT_SETTINGS[key]).strip().lower()
+    return value in {"1", "true", "yes", "on"}
+
+
+def sample_rate(key: str) -> float:
+    try:
+        value = float(get_setting(key, DEFAULT_SETTINGS[key]) or DEFAULT_SETTINGS[key])
+    except (TypeError, ValueError):
+        value = float(DEFAULT_SETTINGS[key])
+    return min(1.0, max(0.0, value))
 
 
 def max_parallel_runs() -> int:

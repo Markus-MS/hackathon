@@ -7,6 +7,7 @@ from ctfarena.db import get_db
 from ctfarena.services import ctf_service, llm_catalog, pricing, runtime_settings
 from ctfarena.services.competition import list_run_monitor
 from ctfarena.services.ctfd import CTFdClient, CTFdSyncError
+from ctfarena.telemetry import capture_admin_action, capture_exception
 from ctfarena.utils import slugify, utc_now
 
 
@@ -21,9 +22,11 @@ def login():
             request.form.get("username", ""),
             request.form.get("password", ""),
         ):
+            capture_admin_action("admin.login", status="success")
             flash("Admin session opened.", "success")
             next_url = request.args.get("next") or url_for("admin.dashboard")
             return redirect(next_url)
+        capture_admin_action("admin.login", status="failed")
         flash("Invalid admin credentials.", "error")
     return render_template("frontend_admin/login.html")
 
@@ -31,6 +34,7 @@ def login():
 @bp.post("/logout")
 def logout():
     logout_admin()
+    capture_admin_action("admin.logout", status="success")
     flash("Admin session closed.", "success")
     return redirect(url_for("frontend.index"))
 
@@ -95,12 +99,35 @@ def update_settings():
         "solver_extra_env": request.form.get("solver_extra_env", "").strip(),
         "opencode_config_dir": request.form.get("opencode_config_dir", "").strip(),
         "opencode_data_dir": request.form.get("opencode_data_dir", "").strip(),
+        "sentry_enabled": "1" if request.form.get("sentry_enabled") == "1" else "0",
+        "sentry_browser_enabled": "1" if request.form.get("sentry_browser_enabled") == "1" else "0",
+        "sentry_traces_sample_rate": request.form.get("sentry_traces_sample_rate", "").strip() or "0.95",
+        "sentry_profiles_sample_rate": request.form.get("sentry_profiles_sample_rate", "").strip() or "0.5",
+        "sentry_replays_session_sample_rate": request.form.get(
+            "sentry_replays_session_sample_rate",
+            "",
+        ).strip()
+        or "0.1",
+        "sentry_replays_on_error_sample_rate": request.form.get(
+            "sentry_replays_on_error_sample_rate",
+            "",
+        ).strip()
+        or "1.0",
+        "sentry_debug_mode_default": "1" if request.form.get("sentry_debug_mode_default") == "1" else "0",
         "openrouter_api_key": request.form.get("openrouter_api_key", "").strip(),
     }
     for key in runtime_settings.SECRET_KEYS:
         posted = request.form.get(key, "")
         values[key] = posted.strip() if posted.strip() else "__KEEP__"
     runtime_settings.update(values)
+    capture_admin_action(
+        "settings.update",
+        status="success",
+        payload={
+            "sentry_enabled": values["sentry_enabled"],
+            "sentry_browser_enabled": values["sentry_browser_enabled"],
+        },
+    )
     flash("Runtime settings saved.", "success")
     return redirect(url_for("admin.dashboard"))
 
@@ -116,6 +143,7 @@ def update_model(model_id: int):
     temperature = request.form.get("temperature", type=float)
     provider_api_key = request.form.get("provider_api_key", "").strip()
     if provider_api_key and not runtime_settings.set_provider_api_key(provider, provider_api_key):
+        capture_admin_action("model.update", status="failed", payload={"model_id": model_id, "reason": "unsupported_provider"})
         flash("Unsupported provider for API key storage.", "error")
         return redirect(url_for("admin.dashboard"))
     if not _ensure_provider_rate(
@@ -154,6 +182,7 @@ def update_model(model_id: int):
         ),
     )
     db.commit()
+    capture_admin_action("model.update", status="success", payload={"model_id": model_id, "provider": provider})
     flash(
         "Model profile saved."
         + (" Provider API key saved." if provider_api_key else ""),
@@ -363,10 +392,12 @@ def create_ctf():
     }
 
     if not payload["title"] or not payload["ctfd_url"]:
+        capture_admin_action("ctf.create", status="failed", payload={"reason": "missing_required"})
         flash("Title and CTFd URL are required.", "error")
         return redirect(url_for("admin.dashboard"))
 
     ctf_id = ctf_service.create_ctf(db, payload)
+    capture_admin_action("ctf.create", status="success", payload={"ctf_id": ctf_id, "title": payload["title"]})
     flash(f"Created CTF #{ctf_id}.", "success")
     return redirect(url_for("admin.dashboard"))
 
@@ -376,6 +407,7 @@ def create_ctf():
 def activate_ctf(ctf_id: int):
     db = get_db()
     ctf_service.activate_ctf(db, ctf_id)
+    capture_admin_action("ctf.activate", status="success", payload={"ctf_id": ctf_id})
     flash("Active weekly CTF updated.", "success")
     return redirect(url_for("admin.dashboard"))
 
@@ -386,6 +418,7 @@ def sync_ctf(ctf_id: int):
     db = get_db()
     ctf = ctf_service.get_ctf(db, ctf_id)
     if ctf is None:
+        capture_admin_action("ctf.sync", status="failed", payload={"ctf_id": ctf_id, "reason": "unknown_ctf"})
         flash("Unknown CTF.", "error")
         return redirect(url_for("admin.dashboard"))
 
@@ -398,10 +431,13 @@ def sync_ctf(ctf_id: int):
         )
         challenges = client.fetch_challenges()
     except CTFdSyncError as exc:
+        capture_exception(exc, tags={"action": "ctf.sync", "ctf_id": ctf_id})
+        capture_admin_action("ctf.sync", status="failed", payload={"ctf_id": ctf_id})
         flash(str(exc), "error")
         return redirect(url_for("admin.dashboard"))
 
     ctf_service.upsert_challenges(db, ctf_id=ctf_id, challenges=challenges)
+    capture_admin_action("ctf.sync", status="success", payload={"ctf_id": ctf_id, "challenge_count": len(challenges)})
     flash(f"Synced {len(challenges)} challenges from CTFd.", "success")
     return redirect(url_for("admin.dashboard"))
 
@@ -423,6 +459,11 @@ def upsert_account(ctf_id: int, model_id: int):
         api_token = api_token or existing["api_token"]
 
     if not api_token:
+        capture_admin_action(
+            "ctf.account.upsert",
+            status="failed",
+            payload={"ctf_id": ctf_id, "model_id": model_id, "reason": "missing_api_token"},
+        )
         flash(
             "Add a per-model CTFd API token. Username and password are only notes for the solver.",
             "error",
@@ -439,6 +480,7 @@ def upsert_account(ctf_id: int, model_id: int):
         team_name=team_name,
         notes=notes,
     )
+    capture_admin_action("ctf.account.upsert", status="success", payload={"ctf_id": ctf_id, "model_id": model_id})
     flash("CTF account saved.", "success")
     return redirect(url_for("admin.dashboard"))
 
@@ -446,14 +488,25 @@ def upsert_account(ctf_id: int, model_id: int):
 @bp.post("/ctfs/<int:ctf_id>/start")
 @admin_required
 def start_competition(ctf_id: int):
+    debug_mode = request.form.get("sentry_debug_mode") == "1"
     try:
         manager = current_app.extensions["competition_manager"]
-        run_ids = manager.start_ctf(ctf_id)
+        run_ids = manager.start_ctf(ctf_id, sentry_debug=debug_mode)
     except ValueError as exc:
+        capture_admin_action(
+            "competition.start",
+            status="failed",
+            payload={"ctf_id": ctf_id, "debug_mode": debug_mode},
+        )
         flash(str(exc), "error")
         return redirect(url_for("admin.dashboard"))
 
     run_count = len(run_ids)
     noun = "model" if run_count == 1 else "models"
+    capture_admin_action(
+        "competition.start",
+        status="success",
+        payload={"ctf_id": ctf_id, "run_count": run_count, "debug_mode": debug_mode},
+    )
     flash(f"Competition started for {run_count} {noun}.", "success")
     return redirect(url_for("admin.dashboard"))

@@ -4,6 +4,8 @@ from decimal import Decimal, InvalidOperation
 
 import requests
 
+from ctfarena.telemetry import metric_count, start_span
+
 
 class LLMCatalogError(RuntimeError):
     pass
@@ -25,12 +27,18 @@ def list_models(provider: str, api_key: str, *, timeout: int = 15) -> list[str]:
 
 
 def _list_openai_models(*, api_key: str, timeout: int) -> list[str]:
-    response = requests.get(
-        "https://api.openai.com/v1/models",
-        headers={"Authorization": f"Bearer {api_key}"},
-        timeout=timeout,
-    )
+    with start_span(
+        op="provider.catalog",
+        name="provider.openai.list_models",
+        attributes={"provider": "openai"},
+    ):
+        response = requests.get(
+            "https://api.openai.com/v1/models",
+            headers={"Authorization": f"Bearer {api_key}"},
+            timeout=timeout,
+        )
     if not response.ok:
+        metric_count("ctfarena.provider.catalog.error", 1, tags={"provider": "openai"})
         raise LLMCatalogError(_openai_error_message(response))
 
     try:
@@ -50,6 +58,7 @@ def _list_openai_models(*, api_key: str, timeout: int) -> list[str]:
         }
     )
     llm_models = [model_id for model_id in model_ids if _looks_like_openai_llm(model_id)]
+    metric_count("ctfarena.provider.catalog.success", 1, tags={"provider": "openai"})
     return llm_models or model_ids
 
 

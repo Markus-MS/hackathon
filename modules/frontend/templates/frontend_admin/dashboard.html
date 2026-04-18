@@ -156,6 +156,38 @@
         <span>Extra Docker Environment</span>
         <textarea name="solver_extra_env" rows="4" placeholder="OPENAI_BASE_URL=https://...">{{ runtime_settings['solver_extra_env'] }}</textarea>
       </label>
+      <label class="inline-check">
+        <input type="checkbox" name="sentry_enabled" value="1" {% if runtime_settings['sentry_enabled'] == '1' %}checked{% endif %}>
+        <span>Enable backend Sentry capture</span>
+      </label>
+      <label class="inline-check">
+        <input type="checkbox" name="sentry_browser_enabled" value="1" {% if runtime_settings['sentry_browser_enabled'] == '1' %}checked{% endif %}>
+        <span>Enable browser Sentry capture</span>
+      </label>
+      <label>
+        <span>Browser DSN{% if masked_settings.get('sentry_browser_dsn') %} · {{ masked_settings['sentry_browser_dsn'] }}{% endif %}</span>
+        <input type="password" name="sentry_browser_dsn" placeholder="Leave blank to keep existing">
+      </label>
+      <label>
+        <span>Trace Sample Rate</span>
+        <input type="number" step="0.01" min="0" max="1" name="sentry_traces_sample_rate" value="{{ runtime_settings['sentry_traces_sample_rate'] }}">
+      </label>
+      <label>
+        <span>Profile Sample Rate</span>
+        <input type="number" step="0.01" min="0" max="1" name="sentry_profiles_sample_rate" value="{{ runtime_settings['sentry_profiles_sample_rate'] }}">
+      </label>
+      <label>
+        <span>Replay Session Rate</span>
+        <input type="number" step="0.01" min="0" max="1" name="sentry_replays_session_sample_rate" value="{{ runtime_settings['sentry_replays_session_sample_rate'] }}">
+      </label>
+      <label>
+        <span>Replay On Error Rate</span>
+        <input type="number" step="0.01" min="0" max="1" name="sentry_replays_on_error_sample_rate" value="{{ runtime_settings['sentry_replays_on_error_sample_rate'] }}">
+      </label>
+      <label class="inline-check">
+        <input type="checkbox" name="sentry_debug_mode_default" value="1" {% if runtime_settings['sentry_debug_mode_default'] == '1' %}checked{% endif %}>
+        <span>Default all runs into Sentry debug mode</span>
+      </label>
       <div class="form-actions">
         <button type="submit">Save Settings</button>
       </div>
@@ -326,6 +358,10 @@
               <button type="submit" class="ghost-button">Sync Challenges</button>
             </form>
             <form method="post" action="{{ url_for('admin.start_competition', ctf_id=ctf['id']) }}">
+              <label class="inline-check">
+                <input type="checkbox" name="sentry_debug_mode" value="1">
+                <span>Debug Mode</span>
+              </label>
               <button type="submit">Start Competition</button>
             </form>
           </div>
@@ -441,6 +477,7 @@
 {% block scripts %}
   <script>
     (() => {
+      const sentry = window.ctfarenaSentry;
       const form = document.querySelector("[data-model-add-form]");
       if (!form) {
         return;
@@ -495,6 +532,7 @@
         const body = new FormData();
         body.set("provider", provider.value);
         body.set("api_key", apiKey.value.trim());
+        sentry?.breadcrumb("frontend.admin", "Loading provider models", { provider: provider.value });
 
         loadButton.disabled = true;
         selectField.hidden = true;
@@ -508,6 +546,7 @@
           });
           const payload = await response.json();
           if (!response.ok) {
+            sentry?.message("Provider model lookup failed", "warning", { provider: provider.value, status: response.status });
             throw new Error(payload.error || "Could not load models.");
           }
 
@@ -526,8 +565,13 @@
           if (payload.models.length) {
             applyModel(payload.models[0]);
           }
+          sentry?.breadcrumb("frontend.admin", "Loaded provider models", {
+            provider: provider.value,
+            modelCount: payload.models.length,
+          });
           setStatus(`Loaded ${payload.models.length} models.`);
         } catch (error) {
+          sentry?.capture(error, { provider: provider.value });
           setStatus(error.message, true);
         } finally {
           loadButton.disabled = false;
@@ -539,11 +583,21 @@
       });
 
       provider.addEventListener("change", () => {
+        sentry?.breadcrumb("frontend.admin", "Changed provider", { provider: provider.value });
         modelName.value = "";
         rateKey.value = "";
         selectField.hidden = true;
         setStatus("");
       });
+
+      for (const adminForm of document.querySelectorAll("form")) {
+        adminForm.addEventListener("submit", () => {
+          sentry?.breadcrumb("frontend.admin", "Submitting admin form", {
+            action: adminForm.action,
+            method: adminForm.method,
+          });
+        });
+      }
     })();
   </script>
 {% endblock %}
