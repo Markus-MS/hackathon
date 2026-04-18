@@ -346,16 +346,17 @@
 
       let rerunBtn = null;
       function syncRerunButton(nextRow) {
-        if (nextRow.challenge_run_id && !["running", "queued"].includes(nextRow.status)) {
+        if (nextRow.challenge_run_id) {
           if (!rerunBtn) {
             rerunBtn = document.createElement("button");
             rerunBtn.className = "rerun-btn";
             right.appendChild(rerunBtn);
           }
-          rerunBtn.disabled = false;
-          rerunBtn.textContent = "Rerun";
+          const isActive = ["running", "queued"].includes(nextRow.status);
+          rerunBtn.disabled = isActive;
+          rerunBtn.textContent = isActive ? "Running" : "Rerun";
           rerunBtn.title = `Rerun challenge for ${nextRow.model}`;
-          rerunBtn.onclick = () => rerunChallenge(nextRow.challenge_run_id, rerunBtn);
+          rerunBtn.onclick = isActive ? null : () => rerunChallenge(nextRow.challenge_run_id, rerunBtn);
         } else if (rerunBtn) {
           rerunBtn.remove();
           rerunBtn = null;
