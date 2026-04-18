@@ -6,6 +6,7 @@ import logging
 import os
 import queue
 import re
+import shutil
 import shlex
 import subprocess
 import tempfile
@@ -975,6 +976,7 @@ def _clean_candidate(value: object) -> str:
 
 def _extract_candidates_from_text(text: str, flag_regex: str) -> list[str]:
     candidates: list[str] = []
+    matched_spans: list[tuple[int, int]] = []
     try:
         pattern = re.compile(flag_regex)
     except re.error:
@@ -982,8 +984,15 @@ def _extract_candidates_from_text(text: str, flag_regex: str) -> list[str]:
 
     for match in pattern.finditer(text):
         candidates.append(_clean_candidate(match.group(0)))
+        matched_spans.append(match.span())
 
+    offset = 0
     for line in text.splitlines():
+        line_start = offset
+        line_end = line_start + len(line)
+        offset = line_end + 1
+        if any(start >= line_start and end <= line_end for start, end in matched_spans):
+            continue
         candidate = _clean_candidate(line)
         if not candidate or len(candidate) > 240:
             continue
@@ -992,6 +1001,18 @@ def _extract_candidates_from_text(text: str, flag_regex: str) -> list[str]:
         if "{" in candidate and "}" in candidate and not candidate.lower().startswith(("http://", "https://")):
             candidates.append(candidate)
     return candidates
+
+
+def _extract_candidates_from_value(value: object, flag_regex: str) -> list[str]:
+    extracted = _extract_candidates_from_text(str(value or ""), flag_regex)
+    if extracted:
+        return extracted
+    candidate = _clean_candidate(value)
+    if not candidate or len(candidate) > 240:
+        return []
+    if "{" not in candidate or "}" not in candidate:
+        return []
+    return [candidate]
 
 
 def _collect_flag_candidates(result_path: Path, *, flag_regex: str, transcript: str) -> list[str]:
@@ -1004,11 +1025,13 @@ def _collect_flag_candidates(result_path: Path, *, flag_regex: str, transcript: 
         except (OSError, json.JSONDecodeError):
             payload = None
         if isinstance(payload, list):
-            candidates.extend(_clean_candidate(item) for item in payload)
+            for item in payload:
+                candidates.extend(_extract_candidates_from_value(item, flag_regex))
         elif isinstance(payload, dict):
             items = payload.get("flag_candidates") or payload.get("flags") or []
             if isinstance(items, list):
-                candidates.extend(_clean_candidate(item) for item in items)
+                for item in items:
+                    candidates.extend(_extract_candidates_from_value(item, flag_regex))
 
     for filename in ("flags.txt", "flag.txt"):
         path = result_path / filename
@@ -1583,15 +1606,62 @@ def _run_opencode_process(
     on_stop=None,
 ) -> SolverResult:
     collector = OpencodeActivityCollector(flag_regex=flag_regex, on_event=on_event)
-    proc = subprocess.Popen(
-        command,
-        env=env,
-        cwd=cwd,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        text=True,
-        bufsize=1,
-    )
+    executable = command[0] if command else ""
+    if not executable:
+        return SolverResult(
+            status="crashed",
+            input_tokens=0,
+            output_tokens=0,
+            reasoning_tokens=0,
+            cached_input_tokens=0,
+            flag_attempts=0,
+            turns=0,
+            solve_time_seconds=None,
+            transcript_excerpt="",
+            flag_candidates=[],
+            error_message="Solver command is empty.",
+        )
+    if shutil.which(executable) is None:
+        return SolverResult(
+            status="crashed",
+            input_tokens=0,
+            output_tokens=0,
+            reasoning_tokens=0,
+            cached_input_tokens=0,
+            flag_attempts=0,
+            turns=0,
+            solve_time_seconds=None,
+            transcript_excerpt="",
+            flag_candidates=[],
+            error_message=(
+                f"Solver executable not found: {executable}. "
+                "Install it or choose another solver backend in Runtime Settings."
+            ),
+        )
+    try:
+        proc = subprocess.Popen(
+            command,
+            env=env,
+            cwd=cwd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            bufsize=1,
+        )
+    except OSError as exc:
+        return SolverResult(
+            status="crashed",
+            input_tokens=0,
+            output_tokens=0,
+            reasoning_tokens=0,
+            cached_input_tokens=0,
+            flag_attempts=0,
+            turns=0,
+            solve_time_seconds=None,
+            transcript_excerpt="",
+            flag_candidates=[],
+            error_message=f"Failed to launch solver executable {executable}: {exc}",
+        )
     line_queue: queue.Queue[tuple[str, str | None]] = queue.Queue()
 
     def _drain_stream(stream, channel: str) -> None:
@@ -1629,7 +1699,13 @@ def _run_opencode_process(
 
         now = time.monotonic()
         if proc.poll() is None:
-            if stop_reason is None and now > deadline:
+            if stop_reason is None and collector.flag_candidates:
+                stop_reason = "candidate_detected"
+                if on_stop is not None:
+                    on_stop(stop_reason)
+                proc.terminate()
+                terminate_sent_at = now
+            elif stop_reason is None and now > deadline:
                 stop_reason = "wall_clock"
                 if on_stop is not None:
                     on_stop(stop_reason)
