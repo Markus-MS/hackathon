@@ -1139,6 +1139,7 @@ def _activity_entries_from_opencode_event(event: dict[str, object]) -> list[tupl
             entries.append((kind, extracted))
 
     if not entries and event_type in {
+        "thread.started",
         "session.started",
         "session.completed",
         "turn.started",
@@ -2046,16 +2047,37 @@ class SshSolverBackend:
                             try:
                                 payload = json.loads(line)
                             except json.JSONDecodeError:
-                                rendered = line
+                                rendered = _redact_secrets(line, secrets)
+                                if rendered and "reading additional input from stdin" not in rendered.lower():
+                                    _emit_activity(
+                                        on_event,
+                                        kind="output",
+                                        content=rendered[:4000],
+                                    )
                             else:
-                                rendered = _extract_text_from_event(payload).strip() or line
-                            rendered = _redact_secrets(rendered, secrets)
-                            if rendered:
-                                _emit_activity(
-                                    on_event,
-                                    kind="output",
-                                    content=rendered[:4000],
-                                )
+                                event_type = str(payload.get("type") or "").strip()
+                                entries = _activity_entries_from_opencode_event(payload)
+                                emitted = False
+                                for kind, text in entries:
+                                    redacted = _redact_secrets(text, secrets)
+                                    if not redacted or "reading additional input from stdin" in redacted.lower():
+                                        continue
+                                    _emit_activity(
+                                        on_event,
+                                        kind=kind,
+                                        content=redacted[:4000],
+                                        details={"event_type": event_type},
+                                    )
+                                    emitted = True
+                                if not emitted:
+                                    rendered = _redact_secrets(_extract_text_from_event(payload).strip() or line, secrets)
+                                    if rendered and "reading additional input from stdin" not in rendered.lower():
+                                        _emit_activity(
+                                            on_event,
+                                            kind="output",
+                                            content=rendered[:4000],
+                                            details={"event_type": event_type},
+                                        )
 
                     t_out = threading.Thread(target=_drain_stdout, daemon=True)
                     t_out.start()
