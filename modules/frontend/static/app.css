@@ -540,12 +540,13 @@ h4 {
   position: relative;
   width: 58px;
   height: 34px;
+  overflow: hidden;
 }
 
 .solve-gauge canvas {
   display: block;
-  width: 58px;
-  height: 34px;
+  width: 58px !important;
+  height: 34px !important;
 }
 
 .solve-gauge-label {

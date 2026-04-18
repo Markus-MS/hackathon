@@ -186,7 +186,7 @@
           ],
         },
         options: {
-          responsive: true,
+          responsive: false,
           maintainAspectRatio: false,
           circumference: 180,
           rotation: -90,
@@ -407,6 +407,8 @@
         gauge.className = "solve-gauge";
         const canvas = document.createElement("canvas");
         canvas.id = `solve-gauge-${row.rank}`;
+        canvas.width = 58;
+        canvas.height = 34;
         const label = document.createElement("span");
         label.className = "solve-gauge-label";
         gauge.append(canvas, label);
