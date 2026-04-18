@@ -1079,6 +1079,26 @@ class CompetitionManager:
         self._futures: dict[int, concurrent.futures.Future[None]] = {}
         self.backend = DockerSolverBackend()
 
+    def resume_incomplete_runs(self, *, synchronous: bool = False) -> list[int]:
+        with self.app.app_context():
+            db = get_db()
+            rows = db.execute(
+                """
+                SELECT id
+                FROM competition_runs
+                WHERE mode = 'competition' AND status != 'completed'
+                ORDER BY datetime(updated_at), id
+                """
+            ).fetchall()
+            run_ids = [int(row["id"]) for row in rows]
+
+        if synchronous:
+            for run_id in run_ids:
+                self._run_single(run_id)
+            return run_ids
+
+        return self._submit_runs(run_ids)
+
     def start_ctf(self, ctf_id: int, *, synchronous: bool = False) -> list[int]:
         with self.app.app_context():
             db = get_db()
@@ -1089,6 +1109,11 @@ class CompetitionManager:
                 self._run_single(run_id)
             return run_ids
 
+        self._submit_runs(run_ids)
+        return run_ids
+
+    def _submit_runs(self, run_ids: list[int]) -> list[int]:
+        submitted_ids: list[int] = []
         with self._lock:
             for run_id in run_ids:
                 future = self._futures.get(run_id)
@@ -1098,7 +1123,8 @@ class CompetitionManager:
                     self._run_with_parallel_limit,
                     run_id,
                 )
-        return run_ids
+                submitted_ids.append(run_id)
+        return submitted_ids
 
     def _configured_parallel_limit(self) -> int:
         with self.app.app_context():

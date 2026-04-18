@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 from flask import Flask
@@ -10,6 +11,20 @@ from ctfarena.config import Config
 from ctfarena.db import init_app as init_db
 from ctfarena.services.competition import CompetitionManager
 from ctfarena.telemetry import init_sentry
+
+
+def _truthy_env(name: str) -> bool:
+    return os.environ.get(name, "").lower() in {"1", "true", "yes", "on"}
+
+
+def should_auto_resume_competitions() -> bool:
+    setting = os.environ.get("CTF_ARENA_AUTO_RESUME", "1").lower()
+    if setting in {"0", "false", "no", "off"}:
+        return False
+    debug_reloader = _truthy_env("CTF_ARENA_DEBUG") or _truthy_env("FLAGFARM_DEBUG")
+    if debug_reloader and os.environ.get("WERKZEUG_RUN_MAIN") != "true":
+        return False
+    return True
 
 
 def create_app(config_object: type[Config] = Config) -> Flask:
@@ -31,11 +46,15 @@ def create_app(config_object: type[Config] = Config) -> Flask:
     )
     init_db(app)
 
-    app.extensions["competition_manager"] = CompetitionManager(app)
+    competition_manager = CompetitionManager(app)
+    app.extensions["competition_manager"] = competition_manager
 
     app.register_blueprint(frontend_bp)
     app.register_blueprint(admin_bp)
     app.register_blueprint(api_bp)
+
+    if should_auto_resume_competitions():
+        competition_manager.resume_incomplete_runs()
 
     @app.context_processor
     def inject_globals() -> dict[str, object]:
