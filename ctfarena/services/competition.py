@@ -3982,7 +3982,9 @@ class CompetitionManager:
     ) -> None:
         with self.app.app_context():
             db = get_db()
-            activity_db = connect_db(current_app.config["DATABASE_PATH"])
+            database_path = current_app.config["DATABASE_PATH"]
+            activity_db = connect_db(database_path)
+            activity_db_owner_thread = threading.get_ident()
             debug_mode = bool(competition_run["debug_mode"])
             challenge_files = ctf_service.list_challenge_files(db, challenge["id"])
             provider_api_key = runtime_settings.provider_api_key(model["provider"])
@@ -4010,13 +4012,30 @@ class CompetitionManager:
             ]
 
             def record_activity(*, kind: str, content: str, details: dict[str, object] | None = None) -> None:
-                run_activity.append_activity(
-                    activity_db,
-                    challenge_run_id,
-                    kind=kind,
-                    content=_redact_secrets(content, secrets),
-                    details=details,
-                )
+                target_db = None
+                should_close = False
+                try:
+                    if threading.get_ident() == activity_db_owner_thread:
+                        target_db = activity_db
+                    else:
+                        target_db = connect_db(database_path)
+                        should_close = True
+                    run_activity.append_activity(
+                        target_db,
+                        challenge_run_id,
+                        kind=kind,
+                        content=_redact_secrets(content, secrets),
+                        details=details,
+                    )
+                except Exception as exc:
+                    logger.warning(
+                        "[competition] failed to record activity for challenge_run_id=%d: %s",
+                        challenge_run_id,
+                        exc,
+                    )
+                finally:
+                    if should_close and target_db is not None:
+                        target_db.close()
 
             # If grace period already expired before we start, mark as timed_out immediately
             if stop_event.is_set():
