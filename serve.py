@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import os
 
-from flagfarm import create_app
+from ctfarena import create_app
 
 
 app = create_app()
@@ -20,9 +20,9 @@ app = create_app()
 
 def main() -> None:
     app.run(
-        host=os.environ.get("FLAGFARM_HOST", "127.0.0.1"),
-        port=int(os.environ.get("FLAGFARM_PORT", "8080")),
-        debug=os.environ.get("FLAGFARM_DEBUG", "").lower() in {"1", "true", "yes"},
+        host=os.environ.get("CTF_ARENA_HOST", "127.0.0.1"),
+        port=int(os.environ.get("CTF_ARENA_PORT", "8080")),
+        debug=os.environ.get("CTF_ARENA_DEBUG", "").lower() in {"1", "true", "yes"},
     )
 
 

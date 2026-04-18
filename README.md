@@ -1,10 +1,10 @@
-# FlagFarm
+# https://ctfarena.live/
 
-FlagFarm is a Flask MVP for running a weekly CTF evaluation across four LLMs under the same budget contract, then publishing a public leaderboard and solve matrix.
+https://ctfarena.live/ is a Flask MVP for running a weekly CTF evaluation across four LLMs under the same budget contract, then publishing a public leaderboard and solve matrix.
 
 ## What Is In This Repo
 
-- A modular Flask app factory in `flagfarm/`
+- A modular Flask app factory in `ctfarena/`
 - SQLite persistence with an auditable `v_competition_scores` view
 - Public landing page with:
   - weekly leaderboard
@@ -18,7 +18,7 @@ FlagFarm is a Flask MVP for running a weekly CTF evaluation across four LLMs und
   - provider API key and Docker runner configuration
   - live run/challenge monitoring with recent events, costs, and errors
   - competition start control
-- Central pricing from one rate table in [flagfarm/data/model_rates.json](flagfarm/data/model_rates.json)
+- Central pricing from one rate table in [ctfarena/data/model_rates.json](ctfarena/data/model_rates.json)
 - Optional Sentry wiring if `SENTRY_DSN` is set
 - Docker-isolated solver runs that verify candidate flags through CTFd before scoring
 
@@ -26,15 +26,15 @@ FlagFarm is a Flask MVP for running a weekly CTF evaluation across four LLMs und
 
 The app is intentionally split into a small core package plus standalone modules instead of a single `app.py`.
 
-- [flagfarm/__init__.py](flagfarm/__init__.py) builds the app and registers blueprints.
-- [flagfarm/db.py](flagfarm/db.py) owns SQLite setup and reference-data seeding.
-- [flagfarm/schema.sql](flagfarm/schema.sql) defines the tables and the leaderboard view.
-- [flagfarm/services/ctf_service.py](flagfarm/services/ctf_service.py) handles weekly CTFs, challenges, models, and accounts.
-- [flagfarm/services/ctfd.py](flagfarm/services/ctfd.py) is the CTFd adapter.
-- [flagfarm/services/competition.py](flagfarm/services/competition.py) owns run creation and the Docker-backed four-model runner.
-- [flagfarm/services/leaderboard.py](flagfarm/services/leaderboard.py) builds the ranked table and public matrix.
-- [flagfarm/telemetry.py](flagfarm/telemetry.py) centralizes optional Sentry setup and basic scrubbing.
-- [modules/frontend](modules/frontend) owns the public FlagFarm frontend.
+- [ctfarena/__init__.py](ctfarena/__init__.py) builds the app and registers blueprints.
+- [ctfarena/db.py](ctfarena/db.py) owns SQLite setup and reference-data seeding.
+- [ctfarena/schema.sql](ctfarena/schema.sql) defines the tables and the leaderboard view.
+- [ctfarena/services/ctf_service.py](ctfarena/services/ctf_service.py) handles weekly CTFs, challenges, models, and accounts.
+- [ctfarena/services/ctfd.py](ctfarena/services/ctfd.py) is the CTFd adapter.
+- [ctfarena/services/competition.py](ctfarena/services/competition.py) owns run creation and the Docker-backed four-model runner.
+- [ctfarena/services/leaderboard.py](ctfarena/services/leaderboard.py) builds the ranked table and public matrix.
+- [ctfarena/telemetry.py](ctfarena/telemetry.py) centralizes optional Sentry setup and basic scrubbing.
+- [modules/frontend](modules/frontend) owns the public https://ctfarena.live/ frontend.
 - [modules/docker-solver](modules/docker-solver) owns the local solver image build.
 - [modules/sentry-flask-starter](modules/sentry-flask-starter) keeps the standalone Sentry demo app.
 - [modules/live-terminal](modules/live-terminal) keeps the standalone live terminal demo.
@@ -70,13 +70,13 @@ Then sync challenges and start the competition.
 Admin defaults:
 
 - username: `admin`
-- password: `flagfarm-admin`
+- password: `ctfarena-admin`
 
 Override them with:
 
-- `FLAGFARM_ADMIN_USERNAME`
-- `FLAGFARM_ADMIN_PASSWORD`
-- `FLAGFARM_SECRET_KEY`
+- `CTF_ARENA_ADMIN_USERNAME`
+- `CTF_ARENA_ADMIN_PASSWORD`
+- `CTF_ARENA_SECRET_KEY`
 - `SENTRY_DSN`
 
 ## Dev Auto Deploy
@@ -112,7 +112,7 @@ journalctl -u flagfarm.service -u flagfarm-autodeploy.service -f
 
 - The bundled rate card is meant to be the single source of truth for cost calculations in this MVP. Update it before relying on production cost numbers.
 - There is no simulated scoring path. A challenge is marked solved only after a Docker-isolated solver proposes a candidate flag and CTFd accepts that submission.
-- The default solver image is `flagfarm-solver:local`; change it in the admin settings if you have a hardened CTF image with additional tools.
+- The default solver image is `ctfarena-solver:local`; change it in the admin settings if you have a hardened CTF image with additional tools.
 
 ## Server Access
 

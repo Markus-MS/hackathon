@@ -3,8 +3,8 @@ from __future__ import annotations
 from flask import Blueprint, abort, current_app, jsonify, render_template, url_for
 from werkzeug.routing import BuildError
 
-from flagfarm.db import get_db
-from flagfarm.services import ctf_service, leaderboard
+from ctfarena.db import get_db
+from ctfarena.services import ctf_service, leaderboard
 
 
 frontend_bp = Blueprint(
