@@ -1,79 +1,9 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>CTFArena</title>
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@600;700&family=PT+Mono&family=Roboto:wght@400;500;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="{{ url_for('frontend.static', filename='app.css') }}">
-  {% if sentry_frontend_config.enabled %}
-    <script src="https://browser.sentry-cdn.com/8.33.0/bundle.tracing.replay.min.js" crossorigin="anonymous"></script>
-    <script>
-      window.__ctfarenaSentryConfig = {{ sentry_frontend_config|tojson }};
-      (() => {
-        const config = window.__ctfarenaSentryConfig;
-        if (!config || !config.enabled || !window.Sentry) {
-          return;
-        }
+{% extends "frontend_base.html" %}
+{% set show_ctf_nav = true %}
 
-        const scrubText = (value) => String(value || "")
-          .replace(/flag\{.*?\}/gi, "[redacted-flag]")
-          .replace(/sk-[A-Za-z0-9_-]+/g, "[redacted-token]")
-          .replace(/Bearer\s+[A-Za-z0-9._-]+/gi, "Bearer [redacted-token]");
+{% block title %}{{ app_name }}{% endblock %}
 
-        window.Sentry.init({
-          dsn: config.dsn,
-          environment: config.environment,
-          release: config.release,
-          integrations: [
-            window.Sentry.browserTracingIntegration(),
-            window.Sentry.replayIntegration(),
-          ],
-          tracesSampleRate: config.debug_mode_default ? 1.0 : config.traces_sample_rate,
-          replaysSessionSampleRate: config.replays_session_sample_rate,
-          replaysOnErrorSampleRate: config.replays_on_error_sample_rate,
-          tracePropagationTargets: [window.location.origin],
-          beforeSend(event) {
-            if (event.request && event.request.url) {
-              event.request.url = scrubText(event.request.url);
-            }
-            if (event.message) {
-              event.message = scrubText(event.message);
-            }
-            if (event.tags) {
-              event.tags.component = "frontend";
-            }
-            return event;
-          },
-        });
-
-        window.Sentry.setTag("component", "frontend");
-        window.Sentry.setTag("page", "leaderboard");
-        window.ctfarenaSentry = {
-          breadcrumb(category, message, data = {}) {
-            window.Sentry.addBreadcrumb({ category, message, data });
-          },
-          capture(error, extra = {}) {
-            window.Sentry.captureException(error, { extra });
-          },
-          message(message, level = "info", extra = {}) {
-            window.Sentry.captureMessage(scrubText(message), { level, extra });
-          },
-          setTag(key, value) {
-            window.Sentry.setTag(key, value);
-          },
-        };
-      })();
-    </script>
-  {% endif %}
-</head>
-<body>
-  <main>
-    {% set show_ctf_nav = true %}
-    {% include "_navigation_header.html" %}
-    <section class="shell">
+{% block content %}
       <header class="hero">
         <div class="summary-grid">
           <div class="summary-tile">
@@ -149,9 +79,9 @@
           </table>
         </div>
       </section>
+{% endblock %}
 
-    </section>
-  </main>
+{% block scripts %}
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.8/dist/chart.umd.min.js"></script>
   <script>
     const dashboardApiUrl = {{ dashboard_api_url|tojson }};
@@ -635,5 +565,4 @@
       body.appendChild(row);
     });
   </script>
-</body>
-</html>
+{% endblock %}
