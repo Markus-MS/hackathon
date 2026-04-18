@@ -25,6 +25,7 @@ from ctfarena.telemetry import (
     metric_distribution,
     set_context,
     start_span,
+    start_transaction,
 )
 from ctfarena.utils import utc_now
 
@@ -1586,6 +1587,7 @@ class CompetitionManager:
     ) -> None:
         with self.app.app_context():
             db = get_db()
+            debug_mode = bool(competition_run["debug_mode"])
 
             # If grace period already expired before we start, mark as timed_out immediately
             if stop_event.is_set():
@@ -1604,155 +1606,222 @@ class CompetitionManager:
                     ),
                 )
                 db.commit()
-                _refresh_run_totals(db, competition_run_id)
-                return
-
-            started_at = utc_now()
-            db.execute(
-                """
-                UPDATE challenge_runs
-                SET
-                    status = 'running',
-                    attempt_index = 1,
-                    started_at = COALESCE(started_at, ?),
-                    updated_at = ?
-                WHERE id = ?
-                """,
-                (started_at, started_at, challenge_run_id),
-            )
-            db.commit()
-            _log_event(
-                db,
-                competition_run_id=competition_run_id,
-                challenge_run_id=challenge_run_id,
-                level="info",
-                message=f"Started challenge {challenge['name']}.",
-                details={"remote_id": challenge["remote_id"]},
-            )
-
-            try:
-                result = self.backend.execute(
-                    ctf=ctf,
-                    model=model,
-                    challenge=challenge,
-                    account=account,
-                    competition_run=competition_run,
-                    stop_event=stop_event,
-                )
-                cost_usd = pricing.estimate_cost(
-                    model["rate_key"],
-                    input_tokens=result.input_tokens,
-                    output_tokens=result.output_tokens,
-                    cached_input_tokens=result.cached_input_tokens,
-                    reasoning_tokens=result.reasoning_tokens,
-                )
-                budget_status, budget_error = _apply_budget(
-                    competition_run,
-                    result,
-                    cost_usd,
-                )
-                if budget_status == "budget_exhausted":
-                    final_status = budget_status
-                    final_error = budget_error
-                    flag_attempts = result.flag_attempts
-                else:
-                    final_status, final_error, flag_attempts = _verify_candidates(
-                        ctf,
-                        challenge,
-                        account,
-                        result,
-                    )
-                ended_at = utc_now()
-                db.execute(
-                    """
-                    UPDATE challenge_runs
-                    SET
-                        status = ?,
-                        ended_at = ?,
-                        input_tokens = ?,
-                        output_tokens = ?,
-                        reasoning_tokens = ?,
-                        cached_input_tokens = ?,
-                        cost_usd = ?,
-                        flag_attempts = ?,
-                        turns = ?,
-                        solve_time_seconds = ?,
-                        transcript_excerpt = ?,
-                        error_message = ?,
-                        updated_at = ?
-                    WHERE id = ?
-                    """,
-                    (
-                        final_status,
-                        ended_at,
-                        result.input_tokens,
-                        result.output_tokens,
-                        result.reasoning_tokens,
-                        result.cached_input_tokens,
-                        cost_usd,
-                        flag_attempts,
-                        result.turns,
-                        result.solve_time_seconds if final_status == "solved" else None,
-                        result.transcript_excerpt,
-                        final_error,
-                        ended_at,
-                        challenge_run_id,
-                    ),
-                )
-                db.commit()
-                _log_event(
-                    db,
-                    competition_run_id=competition_run_id,
-                    challenge_run_id=challenge_run_id,
-                    level="info" if final_status == "solved" else "warning",
-                    message=f"Challenge {challenge['name']} ended as {final_status}.",
-                    details={
-                        "remote_id": challenge["remote_id"],
-                        "candidate_count": len(result.flag_candidates),
-                        "flag_attempts": flag_attempts,
-                        "cost_usd": cost_usd,
-                        "error": final_error,
-                    },
-                )
-                _refresh_run_totals(db, competition_run_id)
-
-                # Signal first solve so the grace period timer starts
-                if final_status == "solved":
-                    first_solve_event.set()
-
-            except Exception as exc:
-                capture_exception(
-                    exc,
+                capture_message(
+                    f"Challenge {challenge['name']} skipped after grace period",
+                    level="info",
                     tags={
                         "competition_run_id": competition_run_id,
                         "challenge_id": challenge["id"],
                         "provider": model["provider"],
                     },
-                    context={"challenge_name": challenge["name"]},
+                    context={"reason": "grace_period", "debug_mode": debug_mode},
                 )
-                ended_at = utc_now()
+                _refresh_run_totals(db, competition_run_id)
+                return
+
+            with start_transaction(
+                op="competition.challenge",
+                name="competition.challenge",
+                attributes={
+                    "competition_run_id": competition_run_id,
+                    "challenge_id": challenge["id"],
+                    "challenge_name": challenge["name"],
+                    "difficulty": challenge["difficulty"],
+                    "provider": model["provider"],
+                    "debug_mode": debug_mode,
+                },
+            ):
+                set_context(
+                    "challenge_run",
+                    {
+                        "competition_run_id": competition_run_id,
+                        "challenge_id": challenge["id"],
+                        "challenge_name": challenge["name"],
+                        "category": challenge["category"],
+                        "points": challenge["points"],
+                        "debug_mode": debug_mode,
+                    },
+                )
+                started_at = utc_now()
                 db.execute(
                     """
                     UPDATE challenge_runs
                     SET
-                        status = 'crashed',
-                        ended_at = ?,
-                        error_message = ?,
+                        status = 'running',
+                        attempt_index = 1,
+                        started_at = COALESCE(started_at, ?),
                         updated_at = ?
                     WHERE id = ?
                     """,
-                    (ended_at, str(exc), ended_at, challenge_run_id),
+                    (started_at, started_at, challenge_run_id),
                 )
                 db.commit()
                 _log_event(
                     db,
                     competition_run_id=competition_run_id,
                     challenge_run_id=challenge_run_id,
-                    level="error",
-                    message=f"Challenge {challenge['name']} crashed.",
-                    details={"error": str(exc)},
+                    level="info",
+                    message=f"Started challenge {challenge['name']}.",
+                    details={"remote_id": challenge["remote_id"]},
                 )
-                _refresh_run_totals(db, competition_run_id)
+
+                try:
+                    result = self.backend.execute(
+                        ctf=ctf,
+                        model=model,
+                        challenge=challenge,
+                        account=account,
+                        competition_run=competition_run,
+                        stop_event=stop_event,
+                    )
+                    with start_span(
+                        op="competition.cost",
+                        name="competition.estimate_cost",
+                        attributes={"rate_key": model["rate_key"], "challenge_id": challenge["id"]},
+                    ):
+                        cost_usd = pricing.estimate_cost(
+                            model["rate_key"],
+                            input_tokens=result.input_tokens,
+                            output_tokens=result.output_tokens,
+                            cached_input_tokens=result.cached_input_tokens,
+                            reasoning_tokens=result.reasoning_tokens,
+                        )
+                    budget_status, budget_error = _apply_budget(
+                        competition_run,
+                        result,
+                        cost_usd,
+                    )
+                    if budget_status == "budget_exhausted":
+                        final_status = budget_status
+                        final_error = budget_error
+                        flag_attempts = result.flag_attempts
+                        capture_message(
+                            f"Budget exhausted for challenge {challenge['name']}",
+                            level="warning",
+                            tags={
+                                "competition_run_id": competition_run_id,
+                                "challenge_id": challenge["id"],
+                                "provider": model["provider"],
+                            },
+                            context={"cost_usd": cost_usd, "debug_mode": debug_mode},
+                        )
+                    else:
+                        final_status, final_error, flag_attempts = _verify_candidates(
+                            ctf,
+                            challenge,
+                            account,
+                            result,
+                        )
+                    ended_at = utc_now()
+                    db.execute(
+                        """
+                        UPDATE challenge_runs
+                        SET
+                            status = ?,
+                            ended_at = ?,
+                            input_tokens = ?,
+                            output_tokens = ?,
+                            reasoning_tokens = ?,
+                            cached_input_tokens = ?,
+                            cost_usd = ?,
+                            flag_attempts = ?,
+                            turns = ?,
+                            solve_time_seconds = ?,
+                            transcript_excerpt = ?,
+                            error_message = ?,
+                            updated_at = ?
+                        WHERE id = ?
+                        """,
+                        (
+                            final_status,
+                            ended_at,
+                            result.input_tokens,
+                            result.output_tokens,
+                            result.reasoning_tokens,
+                            result.cached_input_tokens,
+                            cost_usd,
+                            flag_attempts,
+                            result.turns,
+                            result.solve_time_seconds if final_status == "solved" else None,
+                            result.transcript_excerpt,
+                            final_error,
+                            ended_at,
+                            challenge_run_id,
+                        ),
+                    )
+                    db.commit()
+                    metric_count(
+                        "ctfarena.challenge.completed",
+                        1,
+                        tags={
+                            "status": final_status,
+                            "provider": model["provider"],
+                            "debug_mode": str(int(debug_mode)),
+                        },
+                    )
+                    metric_distribution(
+                        "ctfarena.challenge.cost_usd",
+                        cost_usd,
+                        tags={"status": final_status, "provider": model["provider"]},
+                    )
+                    if result.solve_time_seconds is not None:
+                        metric_distribution(
+                            "ctfarena.challenge.solve_time_seconds",
+                            result.solve_time_seconds,
+                            tags={"status": final_status, "provider": model["provider"]},
+                        )
+                    _log_event(
+                        db,
+                        competition_run_id=competition_run_id,
+                        challenge_run_id=challenge_run_id,
+                        level="info" if final_status == "solved" else "warning",
+                        message=f"Challenge {challenge['name']} ended as {final_status}.",
+                        details={
+                            "remote_id": challenge["remote_id"],
+                            "candidate_count": len(result.flag_candidates),
+                            "flag_attempts": flag_attempts,
+                            "cost_usd": cost_usd,
+                            "error": final_error,
+                        },
+                    )
+                    _refresh_run_totals(db, competition_run_id)
+
+                    if final_status == "solved":
+                        first_solve_event.set()
+
+                except Exception as exc:
+                    capture_exception(
+                        exc,
+                        tags={
+                            "competition_run_id": competition_run_id,
+                            "challenge_id": challenge["id"],
+                            "provider": model["provider"],
+                        },
+                        context={"challenge_name": challenge["name"], "debug_mode": debug_mode},
+                    )
+                    ended_at = utc_now()
+                    db.execute(
+                        """
+                        UPDATE challenge_runs
+                        SET
+                            status = 'crashed',
+                            ended_at = ?,
+                            error_message = ?,
+                            updated_at = ?
+                        WHERE id = ?
+                        """,
+                        (ended_at, str(exc), ended_at, challenge_run_id),
+                    )
+                    db.commit()
+                    _log_event(
+                        db,
+                        competition_run_id=competition_run_id,
+                        challenge_run_id=challenge_run_id,
+                        level="error",
+                        message=f"Challenge {challenge['name']} crashed.",
+                        details={"error": str(exc)},
+                    )
+                    _refresh_run_totals(db, competition_run_id)
 
     def _run_ctf(self, ctf_id: int, run_ids: list[int]) -> None:
         """
@@ -1764,7 +1833,6 @@ class CompetitionManager:
         with self.app.app_context():
             db = get_db()
 
-            # Filter out already-completed runs
             active_run_ids = []
             for run_id in run_ids:
                 run = get_competition_run(db, run_id)
@@ -1788,10 +1856,8 @@ class CompetitionManager:
                 return
 
             ctf = ctf_service.get_ctf(db, ctf_id)
-            # Challenges ordered by solves DESC — most-solved (easiest) first
             challenges = ctf_service.list_challenges(db, ctf_id)
 
-            # Pre-load per-run info (model, account, competition_run snapshot)
             run_infos: dict[int, dict] = {}
             for run_id in active_run_ids:
                 competition_run = get_competition_run(db, run_id)
@@ -1812,9 +1878,7 @@ class CompetitionManager:
                 metric_count("ctfarena.run.started", 1, tags={"provider": model["provider"]})
 
         grace_seconds = max(0, runtime_settings.positive_int("solver_grace_period_seconds"))
-
         for challenge in challenges:
-            # Collect which (run_id, challenge_run_id) pairs are still pending
             with self.app.app_context():
                 db = get_db()
                 pending: list[tuple[int, int]] = []
@@ -1836,7 +1900,6 @@ class CompetitionManager:
             first_solve_event = threading.Event()
             stop_event = threading.Event()
 
-            # Grace-period timer: fires after the first solve, then signals stop
             def _grace_timer(ev: threading.Event, sev: threading.Event, seconds: int) -> None:
                 ev.wait()
                 if not sev.is_set():
@@ -1871,11 +1934,9 @@ class CompetitionManager:
                 ]
                 concurrent.futures.wait(futs)
 
-            # Ensure stop_event and grace thread are cleaned up
             stop_event.set()
             grace_thread.join(timeout=1)
 
-        # Mark all active runs as completed
         with self.app.app_context():
             db = get_db()
             finished_at = utc_now()
