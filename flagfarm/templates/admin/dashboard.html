@@ -1,0 +1,199 @@
+{% extends "base.html" %}
+
+{% block title %}Admin · {{ app_name }}{% endblock %}
+
+{% block content %}
+  <section class="hero-card admin-hero">
+    <div>
+      <p class="eyebrow">Admin Control Plane</p>
+      <h1>Weekly CTF orchestration</h1>
+      <p class="hero-copy">
+        This panel is intentionally small: define the week, sync challenges from CTFd, attach one account to each model,
+        and start the four-run evaluation.
+      </p>
+    </div>
+    {% if active_ctf %}
+      <dl class="hero-meta">
+        <div>
+          <dt>Active week</dt>
+          <dd>{{ active_ctf["title"] }}</dd>
+        </div>
+        <div>
+          <dt>Challenges</dt>
+          <dd>{{ active_ctf["challenge_count"] }}</dd>
+        </div>
+        <div>
+          <dt>Runs</dt>
+          <dd>{{ active_ctf["run_count"] }}</dd>
+        </div>
+      </dl>
+    {% endif %}
+  </section>
+
+  <section class="panel">
+    <div class="panel-head">
+      <div>
+        <p class="eyebrow">1. Weekly Setup</p>
+        <h2>Create a CTF week</h2>
+      </div>
+    </div>
+    <form class="stack-form grid-form" method="post" action="{{ url_for('admin.create_ctf') }}">
+      <label>
+        <span>Title</span>
+        <input type="text" name="title" placeholder="PlaidCTF 2026 Week 1" required>
+      </label>
+      <label>
+        <span>CTFd URL</span>
+        <input type="url" name="ctfd_url" placeholder="https://ctf.example.com" required>
+      </label>
+      <label>
+        <span>CTFd Auth</span>
+        <select name="ctfd_auth_type">
+          <option value="token">Token</option>
+          <option value="bearer">Bearer</option>
+          <option value="cookie">Cookie Header</option>
+        </select>
+      </label>
+      <label>
+        <span>Auth Secret</span>
+        <input type="text" name="ctfd_token" placeholder="Optional API token or cookie">
+      </label>
+      <label>
+        <span>Sandbox Digest</span>
+        <input type="text" name="sandbox_digest" placeholder="Defaults from config">
+      </label>
+      <label>
+        <span>Flag Regex</span>
+        <input type="text" name="flag_regex" value="flag\{.*?\}">
+      </label>
+      <label>
+        <span>Wall Seconds</span>
+        <input type="number" name="budget_wall_seconds" value="1800" min="60">
+      </label>
+      <label>
+        <span>Input Tokens</span>
+        <input type="number" name="budget_input_tokens" value="2000000" min="1000">
+      </label>
+      <label>
+        <span>Output Tokens</span>
+        <input type="number" name="budget_output_tokens" value="200000" min="1000">
+      </label>
+      <label>
+        <span>USD Budget</span>
+        <input type="number" step="0.01" name="budget_usd" value="5.00" min="0.01">
+      </label>
+      <label>
+        <span>Flag Attempts</span>
+        <input type="number" name="budget_flag_attempts" value="2" min="1">
+      </label>
+      <div class="form-actions">
+        <button type="submit">Create Week</button>
+      </div>
+    </form>
+  </section>
+
+  <section class="panel">
+    <div class="panel-head">
+      <div>
+        <p class="eyebrow">2. Model Roster</p>
+        <h2>Four configured competitors</h2>
+      </div>
+    </div>
+    <div class="table-wrap">
+      <table class="data-table">
+        <thead>
+          <tr>
+            <th>Model</th>
+            <th>Provider</th>
+            <th>Rate Key</th>
+            <th>Reasoning</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for model in models %}
+            <tr>
+              <td>
+                <div class="model-chip">
+                  <span class="dot" style="background: {{ model['color'] }}"></span>
+                  <span><strong>{{ model["display_name"] }}</strong></span>
+                </div>
+              </td>
+              <td>{{ model["provider"] }}</td>
+              <td><code>{{ model["rate_key"] }}</code></td>
+              <td>{{ model["reasoning_effort"] }}</td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section class="panel">
+    <div class="panel-head">
+      <div>
+        <p class="eyebrow">3. Weekly Runs</p>
+        <h2>Manage events and accounts</h2>
+      </div>
+    </div>
+
+    {% for ctf in ctfs %}
+      <article class="ctf-admin-card">
+        <div class="ctf-admin-head">
+          <div>
+            <h3>{{ ctf["title"] }}</h3>
+            <p>{{ ctf["ctfd_url"] }}</p>
+          </div>
+          <div class="inline-actions">
+            <span class="pill pill-{{ ctf['status'] }}">{{ ctf["status"] }}</span>
+            <form method="post" action="{{ url_for('admin.activate_ctf', ctf_id=ctf['id']) }}">
+              <button type="submit" class="ghost-button">Make Active</button>
+            </form>
+            <form method="post" action="{{ url_for('admin.sync_ctf', ctf_id=ctf['id']) }}">
+              <button type="submit" class="ghost-button">Sync Challenges</button>
+            </form>
+            <form method="post" action="{{ url_for('admin.start_competition', ctf_id=ctf['id']) }}">
+              <button type="submit">Start Competition</button>
+            </form>
+          </div>
+        </div>
+
+        <p class="muted-copy">
+          {{ ctf["challenge_count"] }} challenges synced · {{ ctf["run_count"] }} runs created · {{ ctf["completed_runs"] }} runs completed
+        </p>
+
+        <div class="account-grid">
+          {% for model in models %}
+            {% set account = namespace(value=None) %}
+            {% for existing in account_map.get(ctf["id"], []) %}
+              {% if existing["slug"] == model["slug"] %}
+                {% set account.value = existing %}
+              {% endif %}
+            {% endfor %}
+            <form class="stack-form account-form" method="post" action="{{ url_for('admin.upsert_account', ctf_id=ctf['id'], model_id=model['id']) }}">
+              <h4>{{ model["display_name"] }}</h4>
+              <label>
+                <span>Username</span>
+                <input type="text" name="username" value="{{ account.value['username'] if account.value else '' }}" required>
+              </label>
+              <label>
+                <span>Password</span>
+                <input type="password" name="password" value="{{ account.value['password'] if account.value else '' }}" required>
+              </label>
+              <label>
+                <span>Team Name</span>
+                <input type="text" name="team_name" value="{{ account.value['team_name'] if account.value else '' }}">
+              </label>
+              <label>
+                <span>Notes</span>
+                <textarea name="notes" rows="3">{{ account.value['notes'] if account.value else '' }}</textarea>
+              </label>
+              <button type="submit" class="ghost-button">Save Account</button>
+            </form>
+          {% endfor %}
+        </div>
+      </article>
+    {% else %}
+      <p class="empty-state">No weekly CTFs configured yet.</p>
+    {% endfor %}
+  </section>
+{% endblock %}
