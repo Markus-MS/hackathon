@@ -127,9 +127,8 @@ class CTFdClient:
         message_lower = message.lower()
         return {
             "correct": (
-                status in {"correct", "already_solved"}
+                status in {"correct"}
                 or "correct" in message_lower
-                or ("already" in message_lower and "solved" in message_lower)
             ),
             "status": status,
             "message": message,

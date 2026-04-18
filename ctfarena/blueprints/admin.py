@@ -81,8 +81,11 @@ def dashboard():
 @admin_required
 def update_settings():
     solver_tool = request.form.get("solver_tool", "docker").strip()
-    if solver_tool not in ("docker", "opencode"):
+    if solver_tool not in ("docker", "opencode", "ssh"):
         solver_tool = "docker"
+    solver_ssh_agent = request.form.get("solver_ssh_agent", "codex").strip()
+    if solver_ssh_agent not in ("codex", "claude"):
+        solver_ssh_agent = "codex"
     log_level = request.form.get("log_level", "DEBUG").strip().upper()
     if log_level not in ("DEBUG", "INFO", "WARNING", "ERROR"):
         log_level = "DEBUG"
@@ -91,6 +94,13 @@ def update_settings():
         "solver_tool": solver_tool,
         "solver_image": request.form.get("solver_image", "").strip(),
         "solver_network": request.form.get("solver_network", "").strip() or "bridge",
+        "solver_ssh_target": request.form.get("solver_ssh_target", "").strip() or "solver",
+        "solver_ssh_agent": solver_ssh_agent,
+        "solver_ssh_workspace_root": request.form.get("solver_ssh_workspace_root", "").strip()
+        or "~/ctfarena-runs",
+        "solver_ssh_challenge_root": request.form.get("solver_ssh_challenge_root", "").strip()
+        or "~/challenges",
+        "solver_ssh_extra_args": request.form.get("solver_ssh_extra_args", "").strip(),
         "runner_max_parallel_runs": request.form.get(
             "runner_max_parallel_runs",
             "",
@@ -415,7 +425,7 @@ def create_ctf():
 
     ctf_id = ctf_service.create_ctf(db, payload)
     capture_admin_action("ctf.create", status="success", payload={"ctf_id": ctf_id, "title": payload["title"]})
-    flash(f"Created CTF #{ctf_id}.", "success")
+    flash(f"Created CTF #{ctf_id}. Challenges were not synced.", "success")
     return redirect(url_for("admin.dashboard"))
 
 

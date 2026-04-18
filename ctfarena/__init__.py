@@ -10,6 +10,7 @@ from ctfarena.blueprints.admin import bp as admin_bp
 from ctfarena.blueprints.api import bp as api_bp
 from ctfarena.config import Config
 from ctfarena.db import init_app as init_db
+from ctfarena.live_terminal import LiveTerminalManager, init_app as init_live_terminal
 from ctfarena.services.competition import CompetitionManager
 from ctfarena.telemetry import init_sentry, template_config
 
@@ -68,7 +69,9 @@ def create_app(config_object: type[Config] = Config) -> Flask:
     )
 
     competition_manager = CompetitionManager(app)
+    app.extensions["live_terminal_manager"] = LiveTerminalManager()
     app.extensions["competition_manager"] = competition_manager
+    init_live_terminal(app)
 
     app.register_blueprint(frontend_bp)
     app.register_blueprint(admin_bp)

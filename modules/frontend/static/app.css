@@ -1074,6 +1074,81 @@ h4 {
   word-break: break-word;
 }
 
+.terminal-pane .line {
+  display: block;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.terminal-pane .dim {
+  opacity: 0.72;
+}
+
+.terminal-pane .bold {
+  font-weight: 700;
+}
+
+.terminal-pane .note {
+  color: #9ca3af;
+}
+
+.terminal-pane .error {
+  color: #fda4af;
+}
+
+.terminal-pane .command {
+  color: #7dd3fc;
+  background: rgba(59, 130, 246, 0.10);
+  border-left: 2px solid rgba(125, 211, 252, 0.65);
+  padding-left: 10px;
+}
+
+.reveal {
+  opacity: 0;
+  transform: translateY(3px);
+  animation: terminal-reveal 140ms ease-out forwards;
+}
+
+@keyframes terminal-reveal {
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.typing-cursor {
+  position: relative;
+  display: inline;
+}
+
+.cursor-model-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45em;
+  height: 2.05em;
+  margin-left: 0.55em;
+  padding: 0 0.78em;
+  font-size: 0.68em;
+  line-height: 1;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+  color: #0f172a;
+  background: rgba(255, 255, 255, 0.96);
+  border: 1px solid rgba(255, 255, 255, 0.9);
+  border-radius: 999px;
+  white-space: nowrap;
+  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.22);
+  pointer-events: none;
+  vertical-align: middle;
+}
+
+.cursor-model-pill.claude {
+  color: #fff7f4;
+  background: #de7356;
+  border-color: #de7356;
+  box-shadow: 0 8px 24px rgba(222, 115, 86, 0.32);
+}
+
 @keyframes pulse {
   0% {
     opacity: 0.8;

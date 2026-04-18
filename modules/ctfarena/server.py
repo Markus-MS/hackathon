@@ -3,6 +3,7 @@
 # /// script
 # dependencies = [
 #   "flask>=3.1,<4",
+#   "flask-sock>=0.7,<1",
 #   "requests>=2.32,<3",
 #   "sentry-sdk[flask]>=2.0,<3",
 # ]

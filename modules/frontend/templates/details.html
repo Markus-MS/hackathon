@@ -19,6 +19,7 @@
     const challengeApiUrl = {{ challenge_api_url|tojson }};
     const detailsApiUrl = {{ details_api_url|tojson }};
     const rerunBaseUrl = {{ url_for('admin.rerun_challenge_run', challenge_run_id=0)|tojson }};
+    const terminalSockets = new Map();
 
     function setText(id, value) {
       const el = document.getElementById(id);
@@ -91,8 +92,153 @@
       }
     }
 
+    function createTerminalController(terminalEl) {
+      const renderQueue = [];
+      let renderActive = false;
+      let parkedPill = null;
+
+      function scrollToBottom() {
+        terminalEl.scrollTop = terminalEl.scrollHeight;
+      }
+
+      function appendHtml(html, animate) {
+        terminalEl.insertAdjacentHTML("beforeend", html);
+        if (animate) {
+          const last = terminalEl.lastElementChild;
+          if (last) {
+            last.classList.add("reveal");
+          }
+        }
+        scrollToBottom();
+      }
+
+      function stripWrapper(html) {
+        const match = html.match(/^<span class="([^"]*)">(.*)<\/span>$/s);
+        if (!match) {
+          return null;
+        }
+        return { className: match[1], innerHtml: match[2] };
+      }
+
+      function enqueue(item) {
+        renderQueue.push(item);
+        if (!renderActive) {
+          drain();
+        }
+      }
+
+      function drain() {
+        if (!renderQueue.length) {
+          renderActive = false;
+          return;
+        }
+        renderActive = true;
+        const item = renderQueue.shift();
+        if (item.mode !== "type") {
+          appendHtml(item.html, !!item.animate);
+          drain();
+          return;
+        }
+        const wrapped = stripWrapper(item.html);
+        if (!wrapped) {
+          appendHtml(item.html, false);
+          drain();
+          return;
+        }
+        const line = document.createElement("span");
+        line.className = wrapped.className;
+        const container = document.createElement("span");
+        container.className = "typing-cursor";
+        const textNode = document.createElement("span");
+        container.appendChild(textNode);
+        line.appendChild(container);
+
+        if (parkedPill) {
+          parkedPill.remove();
+          parkedPill = null;
+        }
+
+        let pill = null;
+        if (item.modelLabel) {
+          pill = document.createElement("span");
+          pill.className = "cursor-model-pill";
+          if (item.modelLabel === "claude") {
+            pill.classList.add("claude");
+          }
+          const label = document.createElement("span");
+          label.textContent = item.modelLabel;
+          pill.appendChild(label);
+          container.appendChild(pill);
+        }
+
+        const source = document.createElement("div");
+        source.innerHTML = wrapped.innerHtml;
+        const text = source.textContent || "";
+        let index = 0;
+        terminalEl.appendChild(line);
+
+        function tick() {
+          if (index >= text.length) {
+            container.classList.remove("typing-cursor");
+            textNode.textContent = text;
+            if (pill) {
+              parkedPill = pill;
+            }
+            scrollToBottom();
+            drain();
+            return;
+          }
+          index += 1;
+          textNode.textContent = text.slice(0, index);
+          scrollToBottom();
+          window.setTimeout(tick, item.delayMs || 24);
+        }
+
+        tick();
+      }
+
+      return {
+        enqueue,
+        replaceText(text) {
+          terminalEl.textContent = text || "No terminal output yet.";
+        },
+        scrollToBottom,
+      };
+    }
+
+    function connectLiveTerminal(url, controller, onStatus) {
+      if (!url) {
+        return null;
+      }
+      let sawAppend = false;
+      const socket = new WebSocket(url);
+      socket.addEventListener("message", (event) => {
+        const payload = JSON.parse(event.data);
+        if (payload.type === "append") {
+          if (!sawAppend) {
+            controller.replaceText("");
+            sawAppend = true;
+          }
+          controller.enqueue({
+            html: payload.html,
+            mode: payload.animate_mode === "type" ? "type" : "append",
+            delayMs: payload.delay_ms || 32,
+            animate: !!payload.animate,
+            modelLabel: payload.model_label || "",
+          });
+        } else if (payload.type === "status" && onStatus) {
+          onStatus(payload);
+        }
+      });
+      return socket;
+    }
+
     function renderChallengeTerminals(data) {
       const grid = document.getElementById("terminal-grid");
+      for (const socket of terminalSockets.values()) {
+        socket.close();
+      }
+      terminalSockets.clear();
       grid.replaceChildren();
       grid.hidden = false;
 
@@ -123,7 +269,7 @@
         status.textContent = String(row.label || row.status).replaceAll("_", " ");
         head.append(model, status);
 
-        if (row.challenge_run_id && row.status !== "solved") {
+        if (row.challenge_run_id) {
           const rerunBtn = document.createElement("button");
           rerunBtn.className = "rerun-btn";
           rerunBtn.textContent = "Rerun";
@@ -148,9 +294,30 @@
           meta.appendChild(chip);
         }
 
-        const pane = document.createElement("pre");
+        const pane = document.createElement("div");
         pane.className = "terminal-pane";
-        pane.textContent = row.terminal_text || "No terminal output yet.";
+        const controller = createTerminalController(pane);
+        if (row.live_ws_url) {
+          controller.replaceText(row.terminal_text || "Waiting for live terminal output...");
+          const socket = connectLiveTerminal(row.live_ws_url, controller, (payload) => {
+            status.textContent = payload.status || status.textContent;
+            const metrics = payload.metrics || {};
+            meta.dataset.liveCommands = String(metrics.commands || 0);
+            meta.dataset.liveMessages = String(metrics.messages || 0);
+            let liveChip = meta.querySelector(".terminal-chip-live");
+            if (!liveChip) {
+              liveChip = document.createElement("span");
+              liveChip.className = "terminal-chip terminal-chip-live";
+              meta.appendChild(liveChip);
+            }
+            liveChip.textContent = `Live: ${payload.phase || "running"} · Cmd ${metrics.commands || 0} · Msg ${metrics.messages || 0}`;
+          });
+          if (socket && row.challenge_run_id) {
+            terminalSockets.set(row.challenge_run_id, socket);
+          }
+        } else {
+          controller.replaceText(row.terminal_text || "No terminal output yet.");
+        }
 
         card.append(head, meta, pane);
         grid.appendChild(card);
@@ -200,9 +367,6 @@
       loadChallengeDetails().catch((error) => {
         setText("summary", error.message);
       });
-      setInterval(() => {
-        loadChallengeDetails().catch(() => {});
-      }, 5000);
     } else {
       loadOverviewDetails().catch((error) => {
         setText("summary", error.message);

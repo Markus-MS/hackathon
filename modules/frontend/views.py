@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from flask import request
 from flask import Blueprint, abort, current_app, jsonify, render_template, url_for
 from werkzeug.routing import BuildError
 
@@ -306,6 +307,7 @@ def build_challenge_details_payload(*, ctf_id: int, challenge_id: int) -> dict[s
                 "solve_time_seconds": row["solve_time_seconds"],
                 "updated_at": row["updated_at"],
                 "terminal_text": terminal_text,
+                "live_ws_url": build_live_ws_url(int(row["challenge_run_id"])) if row["challenge_run_id"] else None,
             }
         )
 
@@ -345,3 +347,8 @@ def safe_url_for(endpoint: str, **values: object) -> str | None:
         return url_for(endpoint, **values)
     except BuildError:
         return None
+
+
+def build_live_ws_url(challenge_run_id: int) -> str:
+    scheme = "wss" if request.scheme == "https" else "ws"
+    return f"{scheme}://{request.host}/ws/challenge-runs/{challenge_run_id}"

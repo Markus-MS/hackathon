@@ -8,8 +8,8 @@
       <p class="eyebrow">Admin Control Plane</p>
       <h1>Weekly CTF orchestration</h1>
       <p class="hero-copy">
-        This panel is intentionally small: define the week, sync challenges from CTFd, attach accounts for the models
-        you want to run, and start the evaluation.
+        This panel is intentionally small: create the week metadata first, then sync challenges from CTFd manually,
+        attach accounts for the models you want to run, and start the evaluation.
       </p>
     </div>
     {% if active_ctf %}
@@ -87,9 +87,10 @@
         <input type="number" name="budget_flag_attempts" value="2" min="1">
       </label>
       <div class="form-actions">
-        <button type="submit">Create Week</button>
+        <button type="submit">Create Week Only</button>
       </div>
     </form>
+    <p class="form-note">Creating a CTF week does not download or sync challenges. Use the separate sync action after creation.</p>
   </section>
 
   <section class="panel">
@@ -133,6 +134,7 @@
         <select name="solver_tool">
           <option value="docker" {% if runtime_settings['solver_tool'] == 'docker' %}selected{% endif %}>Docker (built-in agent loop)</option>
           <option value="opencode" {% if runtime_settings['solver_tool'] == 'opencode' %}selected{% endif %}>opencode (full agentic CLI)</option>
+          <option value="ssh" {% if runtime_settings['solver_tool'] == 'ssh' %}selected{% endif %}>SSH remote solver</option>
         </select>
       </label>
 
@@ -170,6 +172,33 @@
         <label class="wide-field">
           <span>Extra Docker Environment <small>(KEY=VALUE per line)</small></span>
           <textarea name="solver_extra_env" rows="4" placeholder="OPENAI_BASE_URL=https://...">{{ runtime_settings['solver_extra_env'] }}</textarea>
+        </label>
+      </fieldset>
+
+      <fieldset>
+        <legend>SSH solver settings</legend>
+        <label>
+          <span>SSH Target</span>
+          <input type="text" name="solver_ssh_target" value="{{ runtime_settings.get('solver_ssh_target', 'solver') }}" placeholder="solver">
+        </label>
+        <label>
+          <span>Remote Agent</span>
+          <select name="solver_ssh_agent">
+            <option value="codex" {% if runtime_settings.get('solver_ssh_agent', 'codex') == 'codex' %}selected{% endif %}>codex</option>
+            <option value="claude" {% if runtime_settings.get('solver_ssh_agent', 'codex') == 'claude' %}selected{% endif %}>claude</option>
+          </select>
+        </label>
+        <label>
+          <span>Remote Workspace Root</span>
+          <input type="text" name="solver_ssh_workspace_root" value="{{ runtime_settings.get('solver_ssh_workspace_root', '~/ctfarena-runs') }}" placeholder="~/ctfarena-runs">
+        </label>
+        <label>
+          <span>Remote Challenge Root</span>
+          <input type="text" name="solver_ssh_challenge_root" value="{{ runtime_settings.get('solver_ssh_challenge_root', '~') }}" placeholder="~">
+        </label>
+        <label>
+          <span>Extra SSH Args <small>(appended to ssh/scp, e.g. `-F ~/.ssh/config`)</small></span>
+          <input type="text" name="solver_ssh_extra_args" value="{{ runtime_settings.get('solver_ssh_extra_args', '') }}" placeholder="-F ~/.ssh/config">
         </label>
       </fieldset>
 
