@@ -140,6 +140,12 @@ code {
   border: 1px solid var(--border);
 }
 
+.danger-button {
+  background: white;
+  color: #b42318;
+  border: 1px solid rgba(180, 35, 24, 0.24);
+}
+
 .playing-now {
   gap: 8px;
   border: 1px solid rgba(52, 199, 89, 0.22);
@@ -652,6 +658,11 @@ h4 {
 .form-actions {
   display: flex;
   align-items: end;
+}
+
+.split-actions {
+  justify-content: space-between;
+  gap: 0.75rem;
 }
 
 .narrow-panel {

@@ -150,6 +150,19 @@ def update_model(model_id: int):
     return redirect(url_for("admin.dashboard"))
 
 
+@bp.post("/models/<int:model_id>/delete")
+@admin_required
+def delete_model(model_id: int):
+    db = get_db()
+    model = ctf_service.delete_model(db, model_id)
+    if model is None:
+        flash("Unknown model profile.", "error")
+        return redirect(url_for("admin.dashboard"))
+
+    flash(f"Removed model profile {model['display_name']}.", "success")
+    return redirect(url_for("admin.dashboard"))
+
+
 @bp.post("/llm-models")
 @admin_required
 def list_llm_models():

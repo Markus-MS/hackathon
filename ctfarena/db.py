@@ -8,6 +8,8 @@ from flask import Flask, current_app, g
 
 from ctfarena.utils import utc_now
 
+DELETED_MODEL_SLUGS_SETTING = "deleted_model_slugs"
+
 
 def get_db() -> sqlite3.Connection:
     if "db" not in g:
@@ -82,12 +84,23 @@ def seed_reference_data() -> None:
         ON CONFLICT(key) DO NOTHING
         """
     )
+    db.execute(
+        """
+        INSERT INTO settings (key, value)
+        VALUES (?, '[]')
+        ON CONFLICT(key) DO NOTHING
+        """,
+        (DELETED_MODEL_SLUGS_SETTING,),
+    )
 
     default_models = json.loads(
         Path(current_app.config["DEFAULT_MODEL_FILE"]).read_text(encoding="utf-8")
     )
+    deleted_model_slugs = _deleted_model_slugs(db)
     now = utc_now()
     for model in default_models:
+        if model["slug"] in deleted_model_slugs:
+            continue
         db.execute(
             """
             INSERT INTO model_profiles (
@@ -135,6 +148,22 @@ def seed_reference_data() -> None:
     from ctfarena.services import runtime_settings
 
     runtime_settings.seed_defaults(db)
+
+
+def _deleted_model_slugs(db: sqlite3.Connection) -> set[str]:
+    row = db.execute(
+        "SELECT value FROM settings WHERE key = ?",
+        (DELETED_MODEL_SLUGS_SETTING,),
+    ).fetchone()
+    if row is None:
+        return set()
+    try:
+        slugs = json.loads(row["value"])
+    except (TypeError, ValueError):
+        return set()
+    if not isinstance(slugs, list):
+        return set()
+    return {str(slug) for slug in slugs if str(slug).strip()}
 
 
 def init_app(app: Flask) -> None:

@@ -1,10 +1,11 @@
 from __future__ import annotations
 
+import json
 import sqlite3
 
 from flask import current_app
 
-from ctfarena.db import get_setting, set_setting
+from ctfarena.db import DELETED_MODEL_SLUGS_SETTING, get_setting, set_setting
 from ctfarena.utils import slugify, utc_now
 
 
@@ -22,6 +23,30 @@ def get_model(db: sqlite3.Connection, model_id: int):
         "SELECT * FROM model_profiles WHERE id = ?",
         (model_id,),
     ).fetchone()
+
+
+def delete_model(db: sqlite3.Connection, model_id: int):
+    model = get_model(db, model_id)
+    if model is None:
+        return None
+
+    _remember_deleted_model_slug(model["slug"])
+    db.execute("DELETE FROM model_profiles WHERE id = ?", (model_id,))
+    db.commit()
+    return model
+
+
+def _remember_deleted_model_slug(slug: str) -> None:
+    try:
+        existing = json.loads(get_setting(DELETED_MODEL_SLUGS_SETTING, "[]") or "[]")
+    except ValueError:
+        existing = []
+    if not isinstance(existing, list):
+        existing = []
+
+    slugs = {str(item) for item in existing if str(item).strip()}
+    slugs.add(slug)
+    set_setting(DELETED_MODEL_SLUGS_SETTING, json.dumps(sorted(slugs)))
 
 
 def list_ctfs(db: sqlite3.Connection):

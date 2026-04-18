@@ -274,7 +274,17 @@
             <input type="checkbox" name="enabled" value="1" {% if model['enabled'] %}checked{% endif %}>
             <span>Enabled</span>
           </label>
-          <button type="submit" class="ghost-button">Save Model</button>
+          <div class="form-actions split-actions">
+            <button type="submit" class="ghost-button">Save Model</button>
+            <button
+              type="submit"
+              class="danger-button"
+              formaction="{{ url_for('admin.delete_model', model_id=model['id']) }}"
+              formmethod="post"
+              formnovalidate
+              onclick="return confirm('Remove {{ model['display_name']|e }}? This also deletes its CTF accounts and run history.');"
+            >Remove Model</button>
+          </div>
         </form>
       {% endfor %}
     </div>

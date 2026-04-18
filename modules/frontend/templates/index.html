@@ -22,7 +22,6 @@
             <span class="flash-dot"></span>
             <span id="status-text">Loading current event...</span>
           </div>
-          <a class="nav-link" id="admin-link" href="/admin/">Admin</a>
         </div>
       </nav>
 
@@ -263,7 +262,6 @@
 
     function renderHeader(data) {
       setText("status-text", data.status_text);
-      document.getElementById("admin-link").href = data.admin_url;
 
       if (!data.ctf) {
         setText("eyebrow", "No Active Week");
