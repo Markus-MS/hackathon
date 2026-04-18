@@ -1198,11 +1198,7 @@ class DockerSolverBackend:
                     "json",
                     "--title",
                     f"CTFArena: {challenge['name']}",
-                    _opencode_prompt(
-                        challenge["name"],
-                        attempt_number=attempt_number,
-                        retry_hint=retry_hint,
-                    ),
+                    _opencode_prompt(challenge["name"]),
                 ]
 
                 proc = subprocess.Popen(
@@ -1710,7 +1706,21 @@ class SshSolverBackend:
             return f"""#!/usr/bin/env bash
 set -euo pipefail
 cd "$REMOTE_ROOT"
-PROMPT="$(cat "$REMOTE_ROOT/prompt.txt")"
+PROMPT_FILE="$REMOTE_ROOT/combined-prompt.txt"
+cp "$REMOTE_ROOT/prompt.txt" "$PROMPT_FILE"
+if [ -f "$HOME/AGENTS.md" ]; then
+  {{
+    printf '\\n\\n## Remote AGENTS.md\\n\\n'
+    cat "$HOME/AGENTS.md"
+  }} >> "$PROMPT_FILE"
+fi
+if [ -f "$HOME/CLAUDE.md" ]; then
+  {{
+    printf '\\n\\n## Remote CLAUDE.md\\n\\n'
+    cat "$HOME/CLAUDE.md"
+  }} >> "$PROMPT_FILE"
+fi
+PROMPT="$(cat "$PROMPT_FILE")"
 exec codex exec \
   --json \
   --dangerously-bypass-approvals-and-sandbox \
@@ -1719,6 +1729,20 @@ exec codex exec \
         return f"""#!/usr/bin/env bash
 set -euo pipefail
 cd "$REMOTE_ROOT"
+PROMPT_FILE="$REMOTE_ROOT/combined-prompt.txt"
+cp "$REMOTE_ROOT/prompt.txt" "$PROMPT_FILE"
+if [ -f "$HOME/AGENTS.md" ]; then
+  {{
+    printf '\\n\\n## Remote AGENTS.md\\n\\n'
+    cat "$HOME/AGENTS.md"
+  }} >> "$PROMPT_FILE"
+fi
+if [ -f "$HOME/CLAUDE.md" ]; then
+  {{
+    printf '\\n\\n## Remote CLAUDE.md\\n\\n'
+    cat "$HOME/CLAUDE.md"
+  }} >> "$PROMPT_FILE"
+fi
 exec claude --print \
   --output-format json \
   --permission-mode bypassPermissions \
@@ -1726,7 +1750,7 @@ exec claude --print \
   --add-dir "$CHALLENGE_ROOT" \
   --model {shlex.quote(model_name)} \
   --json-schema "$(cat "$REMOTE_ROOT/schema.json")" \
-  "$(cat "$REMOTE_ROOT/prompt.txt")"
+  "$(cat "$PROMPT_FILE")"
 """
 
     @staticmethod
@@ -2493,8 +2517,6 @@ class OpencodeSolverBackend:
             challenge,
             account,
             flag_regex,
-            attempt_number=attempt_number,
-            retry_hint=retry_hint,
         )
 
         logger.info(
