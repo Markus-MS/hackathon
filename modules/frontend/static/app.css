@@ -804,63 +804,112 @@ h4 {
 
 .settings-subtabs {
   display: grid;
-  gap: 1rem;
+  gap: 2rem;
 }
 
 .settings-subtab-list {
   display: flex;
   flex-wrap: wrap;
-  gap: 0.65rem;
+  gap: 0.5rem;
+  padding: 0.75rem;
+  background: linear-gradient(135deg, rgba(11, 114, 133, 0.03) 0%, rgba(11, 114, 133, 0.02) 100%);
+  border-radius: 12px;
+  border: 1px solid var(--border);
 }
 
 .settings-subtab-button {
-  padding: 0.65rem 1rem;
-  border: 1px solid var(--border);
-  border-radius: 999px;
-  background: rgba(255, 255, 255, 0.72);
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.65rem 1.1rem;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: white;
   color: var(--muted);
-  font-size: 0.88rem;
-  font-weight: 700;
+  font-size: 0.9rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  white-space: nowrap;
+}
+
+.settings-subtab-button:hover {
+  background: rgba(255, 255, 255, 0.9);
+  border-color: rgba(11, 114, 133, 0.15);
+  color: var(--text);
+  transform: translateY(-1px);
 }
 
 .settings-subtab-button.is-active {
   background: white;
   color: var(--text);
-  border-color: rgba(11, 114, 133, 0.26);
-  box-shadow: 0 0 0 1px rgba(11, 114, 133, 0.08);
+  border: 1px solid rgba(11, 114, 133, 0.3);
+  box-shadow: 0 2px 8px rgba(11, 114, 133, 0.15), inset 0 1px 0 rgba(255, 255, 255, 0.8);
+  font-weight: 700;
+}
+
+.settings-tab-icon {
+  font-size: 1.1rem;
+  display: inline-flex;
+  line-height: 1;
 }
 
 .settings-subtab-panel {
   display: grid;
-  gap: 1rem;
-  padding: 1rem;
+  gap: 1.5rem;
+  padding: 2rem;
   border: 1px solid var(--border);
-  border-radius: 16px;
-  background: rgba(255, 255, 255, 0.62);
+  border-radius: 12px;
+  background: linear-gradient(135deg, rgba(255, 255, 255, 0.95) 0%, rgba(255, 255, 255, 0.88) 100%);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+  animation: fadeIn 0.2s ease;
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 
 .settings-subtab-copy {
   display: grid;
-  gap: 0.3rem;
+  gap: 0.5rem;
+}
+
+.settings-subtab-copy h3 {
+  margin: 0;
+  font-size: 1.2rem;
+  color: var(--text);
 }
 
 .settings-subtab-copy p {
   margin: 0;
   color: var(--muted);
+  font-size: 0.95rem;
+  line-height: 1.4;
 }
 
 .settings-fieldset {
   margin: 0;
-  padding: 1rem;
+  padding: 1.5rem;
   border: 1px solid var(--border);
-  border-radius: 16px;
+  border-radius: 10px;
   display: grid;
-  gap: 1rem;
+  gap: 1.2rem;
+  background: rgba(11, 114, 133, 0.02);
 }
 
 .settings-fieldset legend {
-  padding: 0 0.45rem;
+  padding: 0 0.5rem;
   font-weight: 700;
+  font-size: 0.95rem;
+  color: var(--text);
+  letter-spacing: 0.3px;
 }
 
 .hero-meta {
@@ -888,7 +937,8 @@ h4 {
 }
 
 .grid-form {
-  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 1rem;
 }
 
 .wide-field {
@@ -897,9 +947,22 @@ h4 {
 
 .stack-form label {
   display: grid;
-  gap: 0.35rem;
+  gap: 0.45rem;
   color: var(--muted);
   font-size: 0.92rem;
+  font-weight: 500;
+}
+
+.stack-form label span {
+  color: var(--text);
+  font-weight: 600;
+}
+
+.stack-form label small {
+  font-weight: 400;
+  font-size: 0.85rem;
+  color: var(--muted);
+  opacity: 0.9;
 }
 
 .stack-form input,
@@ -908,9 +971,25 @@ h4 {
   width: 100%;
   padding: 0.82rem 0.95rem;
   border: 1px solid var(--border);
-  border-radius: 18px;
+  border-radius: 8px;
   background: white;
   color: var(--text);
+  font-family: inherit;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.stack-form input:hover,
+.stack-form select:hover,
+.stack-form textarea:hover {
+  border-color: rgba(11, 114, 133, 0.2);
+}
+
+.stack-form input:focus,
+.stack-form select:focus,
+.stack-form textarea:focus {
+  outline: none;
+  border-color: rgba(11, 114, 133, 0.4);
+  box-shadow: 0 0 0 3px rgba(11, 114, 133, 0.1);
 }
 
 .form-actions {
@@ -1024,11 +1103,21 @@ h4 {
   display: flex !important;
   grid-template-columns: auto 1fr;
   align-items: center;
-  gap: 0.55rem !important;
+  gap: 0.65rem !important;
+  padding: 0.6rem 0;
 }
 
 .inline-check input {
-  width: auto;
+  width: 18px;
+  height: 18px;
+  cursor: pointer;
+  accent-color: rgba(11, 114, 133, 0.7);
+}
+
+.inline-check span {
+  color: var(--text);
+  font-weight: 500;
+  cursor: pointer;
 }
 
 .run-monitor {

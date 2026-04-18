@@ -102,10 +102,22 @@
     <form class="stack-form" method="post" action="{{ url_for('admin.update_settings') }}">
       <div class="settings-subtabs" data-settings-tabs data-active-tab="{{ active_settings_tab }}">
         <div class="settings-subtab-list" role="tablist" aria-label="Settings sections">
-          <button type="button" class="settings-subtab-button{% if active_settings_tab == 'runtime' %} is-active{% endif %}" role="tab" aria-selected="{{ 'true' if active_settings_tab == 'runtime' else 'false' }}" data-settings-tab-button data-settings-tab="runtime">Runtime</button>
-          <button type="button" class="settings-subtab-button{% if active_settings_tab == 'providers' %} is-active{% endif %}" role="tab" aria-selected="{{ 'true' if active_settings_tab == 'providers' else 'false' }}" data-settings-tab-button data-settings-tab="providers">Providers</button>
-          <button type="button" class="settings-subtab-button{% if active_settings_tab == 'agents' %} is-active{% endif %}" role="tab" aria-selected="{{ 'true' if active_settings_tab == 'agents' else 'false' }}" data-settings-tab-button data-settings-tab="agents">Agents</button>
-          <button type="button" class="settings-subtab-button{% if active_settings_tab == 'observability' %} is-active{% endif %}" role="tab" aria-selected="{{ 'true' if active_settings_tab == 'observability' else 'false' }}" data-settings-tab-button data-settings-tab="observability">Observability</button>
+          <button type="button" class="settings-subtab-button{% if active_settings_tab == 'runtime' %} is-active{% endif %}" role="tab" aria-selected="{{ 'true' if active_settings_tab == 'runtime' else 'false' }}" data-settings-tab-button data-settings-tab="runtime" title="Core execution settings">
+            <span class="settings-tab-icon">⚙️</span>
+            <span>Runtime</span>
+          </button>
+          <button type="button" class="settings-subtab-button{% if active_settings_tab == 'providers' %} is-active{% endif %}" role="tab" aria-selected="{{ 'true' if active_settings_tab == 'providers' else 'false' }}" data-settings-tab-button data-settings-tab="providers" title="API credentials for LLM providers">
+            <span class="settings-tab-icon">🔑</span>
+            <span>Providers</span>
+          </button>
+          <button type="button" class="settings-subtab-button{% if active_settings_tab == 'agents' %} is-active{% endif %}" role="tab" aria-selected="{{ 'true' if active_settings_tab == 'agents' else 'false' }}" data-settings-tab-button data-settings-tab="agents" title="Solver backend configuration">
+            <span class="settings-tab-icon">🤖</span>
+            <span>Agents</span>
+          </button>
+          <button type="button" class="settings-subtab-button{% if active_settings_tab == 'observability' %} is-active{% endif %}" role="tab" aria-selected="{{ 'true' if active_settings_tab == 'observability' else 'false' }}" data-settings-tab-button data-settings-tab="observability" title="Error tracking and telemetry">
+            <span class="settings-tab-icon">📊</span>
+            <span>Observability</span>
+          </button>
         </div>
 
         <input type="hidden" name="active_settings_tab" value="{{ active_settings_tab }}" data-settings-tab-input>
