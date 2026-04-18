@@ -2559,7 +2559,7 @@ class OpencodeSolverBackend:
                 extra_args.append(token)
 
             # reasoning_effort → opencode --variant
-            variant = (model.get("reasoning_effort") or "").strip()
+            variant = (model["reasoning_effort"] if "reasoning_effort" in model.keys() else "" or "").strip()
 
             cmd = [
                 "opencode", "run",
