@@ -246,7 +246,7 @@
           ],
         },
         options: {
-          responsive: true,
+          responsive: false,
           maintainAspectRatio: false,
           circumference: 180,
           rotation: 270,
@@ -366,11 +366,11 @@
 
     function renderLeaderboard(rows) {
       const body = document.getElementById("leaderboard-body");
-      body.replaceChildren();
       for (const chart of leaderboardCharts.values()) {
         chart.destroy();
       }
       leaderboardCharts.clear();
+      body.replaceChildren();
 
       if (!rows.length) {
         const row = document.createElement("tr");
@@ -409,6 +409,8 @@
         canvas.id = `solve-gauge-${row.rank}`;
         canvas.width = 58;
         canvas.height = 34;
+        canvas.style.width = "58px";
+        canvas.style.height = "34px";
         const label = document.createElement("span");
         label.className = "solve-gauge-label";
         gauge.append(canvas, label);
