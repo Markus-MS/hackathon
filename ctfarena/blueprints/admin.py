@@ -89,9 +89,9 @@ def dashboard():
 @admin_required
 def update_settings():
     active_settings_tab = _settings_tab(request.form.get("active_settings_tab"))
-    solver_tool = request.form.get("solver_tool", "docker").strip()
+    solver_tool = request.form.get("solver_tool", "ssh").strip()
     if solver_tool not in ("docker", "opencode", "ssh"):
-        solver_tool = "docker"
+        solver_tool = "ssh"
     solver_ssh_agent = request.form.get("solver_ssh_agent", "codex").strip()
     if solver_ssh_agent not in ("codex", "claude"):
         solver_ssh_agent = "codex"
