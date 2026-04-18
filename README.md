@@ -79,6 +79,35 @@ Override them with:
 - `FLAGFARM_SECRET_KEY`
 - `SENTRY_DSN`
 
+## Dev Auto Deploy
+
+On the server, from this repo:
+
+```sh
+sudo ./install-autodeploy.sh
+```
+
+This installs:
+
+- `flagfarm.service`, which runs `./serve.py`
+- `flagfarm-autodeploy.timer`, which checks git every 30 seconds
+
+When the tracked branch changes, it runs `./redeploy.sh`, fast-forwards the repo, rebuilds the solver Docker image, and restarts `flagfarm.service`.
+
+The installer tracks the currently checked-out branch by default. To force `master`:
+
+```sh
+sudo env DEPLOY_BRANCH=master ./install-autodeploy.sh
+```
+
+Useful commands:
+
+```sh
+systemctl status flagfarm.service
+systemctl status flagfarm-autodeploy.timer
+journalctl -u flagfarm.service -u flagfarm-autodeploy.service -f
+```
+
 ## Notes
 
 - The bundled rate card is meant to be the single source of truth for cost calculations in this MVP. Update it before relying on production cost numbers.
