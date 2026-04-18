@@ -17,21 +17,43 @@ log() {
 find_uv() {
   local candidate
 
-  if candidate="$(command -v uv 2>/dev/null)"; then
-    printf '%s\n' "$candidate"
-    return 0
-  fi
-
   for candidate in \
-    /root/.local/bin/uv \
-    "$HOME/.local/bin/uv" \
     /usr/local/bin/uv \
-    /usr/bin/uv; do
+    /usr/bin/uv \
+    /root/.local/bin/uv \
+    "${HOME:-/nonexistent}/.local/bin/uv"; do
     if [[ -x "$candidate" ]]; then
       printf '%s\n' "$candidate"
       return 0
     fi
   done
+
+  if candidate="$(command -v uv 2>/dev/null)"; then
+    printf '%s\n' "$candidate"
+    return 0
+  fi
+
+  return 1
+}
+
+ensure_service_uv() {
+  local uv_bin
+
+  if uv_bin="$(find_uv)"; then
+    if [[ "$(id -u)" == "0" && "$uv_bin" != "/usr/local/bin/uv" && ! -x /usr/local/bin/uv ]]; then
+      install -m 0755 "$uv_bin" /usr/local/bin/uv
+      uv_bin="/usr/local/bin/uv"
+    fi
+    printf '%s\n' "$uv_bin"
+    return 0
+  fi
+
+  if [[ "$(id -u)" == "0" ]] && command -v curl >/dev/null 2>&1; then
+    log "Installing uv into /usr/local/bin" >&2
+    curl -LsSf https://astral.sh/uv/install.sh | env UV_INSTALL_DIR=/usr/local/bin sh >&2
+    find_uv
+    return
+  fi
 
   return 1
 }
@@ -45,7 +67,7 @@ systemd_has_service() {
 configure_service_uv_path() {
   local uv_bin uv_dir service_path dropin_dir dropin tmp current
 
-  if ! uv_bin="$(find_uv)"; then
+  if ! uv_bin="$(ensure_service_uv)"; then
     log "uv was not found; $service may fail to start if it uses uv"
     return 0
   fi
@@ -112,7 +134,7 @@ log "Fast-forwarding to $remote/$branch"
 git merge --ff-only "$remote/$branch"
 
 log "Building solver image"
-./build_solver_image.sh
+./modules/docker-solver/build_image.sh
 
 if systemd_has_service; then
   restart_service
