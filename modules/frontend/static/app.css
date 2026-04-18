@@ -425,8 +425,12 @@ h4 {
   text-transform: uppercase;
   text-align: center;
   background: transparent;
-  height: 136px;
+  height: 100px;
   vertical-align: bottom;
+}
+
+.matrix-card thead th:not(:first-child) {
+  padding-bottom: 14px;
 }
 
 .challenge-link {
@@ -442,30 +446,17 @@ h4 {
 
 .matrix-challenge-label {
   display: inline-block;
-  width: 84px;
-  max-width: 84px;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  width: 32px;
+  max-width: none;
+  overflow: visible;
   white-space: nowrap;
   text-align: left;
-  transform: rotate(-45deg);
+  transform: rotate(-45deg) translateY(6px);
   transform-origin: left bottom;
 }
 
 .matrix-card thead th:nth-child(2) .matrix-challenge-label {
-  margin-left: 10px;
-}
-
-.matrix-model-head-rot {
-  display: inline-block;
-  width: 52px;
-  max-width: 52px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  text-align: left;
-  transform: rotate(-45deg);
-  transform-origin: left bottom;
+  margin-left: 6px;
 }
 
 .matrix-card thead th:first-child {
@@ -502,40 +493,42 @@ h4 {
 }
 
 .model-product-icon {
-  display: inline-grid;
-  place-items: center;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   width: 20px;
   height: 20px;
-  border-radius: 999px;
-  font-size: 0.58rem;
-  font-weight: 700;
-  letter-spacing: 0.03em;
   flex: 0 0 auto;
 }
 
 .model-product-icon.product-codex,
 .model-product-icon.product-openai {
-  background: rgba(52, 120, 246, 0.16);
-  color: #1f4ea7;
-  border: 1px solid rgba(52, 120, 246, 0.42);
+  color: #111827;
 }
 
 .model-product-icon.product-anthropic {
-  background: rgba(199, 98, 38, 0.14);
-  color: #8e4a1f;
-  border: 1px solid rgba(199, 98, 38, 0.4);
+  color: #111827;
 }
 
 .model-product-icon.product-google {
-  background: rgba(34, 139, 87, 0.14);
-  color: #1f7a4e;
-  border: 1px solid rgba(34, 139, 87, 0.38);
+  color: #4285f4;
 }
 
 .model-product-icon.product-default {
-  background: rgba(17, 24, 39, 0.08);
   color: #4b5563;
-  border: 1px solid rgba(17, 24, 39, 0.2);
+}
+
+.model-product-icon-svg {
+  width: 16px;
+  height: 16px;
+  display: block;
+  fill: currentColor;
+}
+
+.model-product-icon.icon-fallback {
+  font-size: 0.58rem;
+  font-weight: 700;
+  letter-spacing: 0.03em;
 }
 
 .matrix-card tbody th,
