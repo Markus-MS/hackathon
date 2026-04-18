@@ -21,6 +21,7 @@ SECRET_KEYS = {
 }
 
 DEFAULT_SETTINGS = {
+    "solver_tool": "docker",
     "solver_image": "ctfarena-solver:local",
     "solver_network": "bridge",
     "runner_max_parallel_runs": os.environ.get("CTF_ARENA_MAX_PARALLEL_RUNS", "1"),
@@ -31,6 +32,7 @@ DEFAULT_SETTINGS = {
     "solver_extra_env": "",
     "opencode_config_dir": "",
     "opencode_data_dir": "",
+    "opencode_extra_args": "",
     "sentry_enabled": "1",
     "sentry_browser_enabled": "0",
     "sentry_browser_dsn": DEFAULT_SENTRY_DSN,
@@ -47,6 +49,7 @@ DEFAULT_SETTINGS = {
 }
 
 NON_EMPTY_SETTINGS = {
+    "solver_tool",
     "solver_image",
     "solver_network",
     "runner_max_parallel_runs",

@@ -121,73 +121,101 @@
         <input type="password" name="openrouter_api_key" placeholder="Leave blank to keep existing">
       </label>
       <label>
-        <span>Docker Image</span>
-        <input type="text" name="solver_image" value="{{ runtime_settings['solver_image'] }}" required>
+        <span>Solver Tool</span>
+        <select name="solver_tool">
+          <option value="docker" {% if runtime_settings['solver_tool'] == 'docker' %}selected{% endif %}>Docker (built-in agent loop)</option>
+          <option value="opencode" {% if runtime_settings['solver_tool'] == 'opencode' %}selected{% endif %}>opencode (full agentic CLI)</option>
+        </select>
       </label>
+
       <label>
-        <span>Docker Network</span>
-        <input type="text" name="solver_network" value="{{ runtime_settings['solver_network'] }}" required>
-      </label>
-      <label>
-        <span>Max Parallel Runs</span>
+        <span>Max Parallel CTF Runs</span>
         <input type="number" name="runner_max_parallel_runs" value="{{ runtime_settings['runner_max_parallel_runs'] }}" min="1" max="32">
       </label>
       <label>
-        <span>Max Agent Turns</span>
-        <input type="number" name="solver_max_turns" value="{{ runtime_settings['solver_max_turns'] }}" min="1" max="40">
+        <span>Grace Period Seconds <small>(time others get after first solve)</small></span>
+        <input type="number" name="solver_grace_period_seconds" value="{{ runtime_settings['solver_grace_period_seconds'] }}" min="0" max="3600">
       </label>
-      <label>
-        <span>Command Timeout Seconds</span>
-        <input type="number" name="solver_command_timeout_seconds" value="{{ runtime_settings['solver_command_timeout_seconds'] }}" min="1" max="600">
-      </label>
-      <label>
-        <span>LLM Timeout Seconds</span>
-        <input type="number" name="solver_llm_timeout_seconds" value="{{ runtime_settings['solver_llm_timeout_seconds'] }}" min="5" max="600">
-      </label>
-      <label>
-        <span>OpenCode Config Directory</span>
-        <input type="text" name="opencode_config_dir" value="{{ runtime_settings['opencode_config_dir'] }}" placeholder="Optional host path to ~/.config/opencode">
-      </label>
-      <label>
-        <span>OpenCode Auth/Data Directory</span>
-        <input type="text" name="opencode_data_dir" value="{{ runtime_settings['opencode_data_dir'] }}" placeholder="Optional host path to ~/.local/share/opencode">
-      </label>
-      <label class="wide-field">
-        <span>Extra Docker Environment</span>
-        <textarea name="solver_extra_env" rows="4" placeholder="OPENAI_BASE_URL=https://...">{{ runtime_settings['solver_extra_env'] }}</textarea>
-      </label>
-      <label class="inline-check">
-        <input type="checkbox" name="sentry_enabled" value="1" {% if runtime_settings['sentry_enabled'] == '1' %}checked{% endif %}>
-        <span>Enable backend Sentry capture</span>
-      </label>
-      <label class="inline-check">
-        <input type="checkbox" name="sentry_browser_enabled" value="1" {% if runtime_settings['sentry_browser_enabled'] == '1' %}checked{% endif %}>
-        <span>Enable browser Sentry capture</span>
-      </label>
-      <label>
-        <span>Browser DSN{% if masked_settings.get('sentry_browser_dsn') %} · {{ masked_settings['sentry_browser_dsn'] }}{% endif %}</span>
-        <input type="password" name="sentry_browser_dsn" placeholder="Leave blank to keep existing">
-      </label>
-      <label>
-        <span>Trace Sample Rate</span>
-        <input type="number" step="0.01" min="0" max="1" name="sentry_traces_sample_rate" value="{{ runtime_settings['sentry_traces_sample_rate'] }}">
-      </label>
-      <label>
-        <span>Profile Sample Rate</span>
-        <input type="number" step="0.01" min="0" max="1" name="sentry_profiles_sample_rate" value="{{ runtime_settings['sentry_profiles_sample_rate'] }}">
-      </label>
-      <label>
-        <span>Replay Session Rate</span>
-        <input type="number" step="0.01" min="0" max="1" name="sentry_replays_session_sample_rate" value="{{ runtime_settings['sentry_replays_session_sample_rate'] }}">
-      </label>
-      <label>
-        <span>Replay On Error Rate</span>
-        <input type="number" step="0.01" min="0" max="1" name="sentry_replays_on_error_sample_rate" value="{{ runtime_settings['sentry_replays_on_error_sample_rate'] }}">
-      </label>
-      <label class="inline-check">
-        <input type="checkbox" name="sentry_debug_mode_default" value="1" {% if runtime_settings['sentry_debug_mode_default'] == '1' %}checked{% endif %}>
-        <span>Default all runs into Sentry debug mode</span>
-      </label>
+
+      <fieldset>
+        <legend>Docker solver settings</legend>
+        <label>
+          <span>Docker Image</span>
+          <input type="text" name="solver_image" value="{{ runtime_settings['solver_image'] }}">
+        </label>
+        <label>
+          <span>Docker Network</span>
+          <input type="text" name="solver_network" value="{{ runtime_settings['solver_network'] }}">
+        </label>
+        <label>
+          <span>Max Agent Turns</span>
+          <input type="number" name="solver_max_turns" value="{{ runtime_settings['solver_max_turns'] }}" min="1" max="40">
+        </label>
+        <label>
+          <span>Command Timeout (s)</span>
+          <input type="number" name="solver_command_timeout_seconds" value="{{ runtime_settings['solver_command_timeout_seconds'] }}" min="1" max="600">
+        </label>
+        <label>
+          <span>LLM Timeout (s)</span>
+          <input type="number" name="solver_llm_timeout_seconds" value="{{ runtime_settings['solver_llm_timeout_seconds'] }}" min="5" max="600">
+        </label>
+        <label class="wide-field">
+          <span>Extra Docker Environment <small>(KEY=VALUE per line)</small></span>
+          <textarea name="solver_extra_env" rows="4" placeholder="OPENAI_BASE_URL=https://...">{{ runtime_settings['solver_extra_env'] }}</textarea>
+        </label>
+      </fieldset>
+
+      <fieldset>
+        <legend>opencode solver settings</legend>
+        <label>
+          <span>Config Directory <small>(overrides ~/.config/opencode)</small></span>
+          <input type="text" name="opencode_config_dir" value="{{ runtime_settings['opencode_config_dir'] }}" placeholder="Leave blank for default">
+        </label>
+        <label>
+          <span>Data Directory <small>(overrides ~/.local/share/opencode)</small></span>
+          <input type="text" name="opencode_data_dir" value="{{ runtime_settings['opencode_data_dir'] }}" placeholder="Leave blank for default">
+        </label>
+        <label>
+          <span>Extra CLI Args <small>(appended to every opencode run invocation)</small></span>
+          <input type="text" name="opencode_extra_args" value="{{ runtime_settings.get('opencode_extra_args', '') }}" placeholder="e.g. --thinking">
+        </label>
+      </fieldset>
+
+      <fieldset>
+        <legend>Sentry settings</legend>
+        <label class="inline-check">
+          <input type="checkbox" name="sentry_enabled" value="1" {% if runtime_settings['sentry_enabled'] == '1' %}checked{% endif %}>
+          <span>Enable backend Sentry capture</span>
+        </label>
+        <label class="inline-check">
+          <input type="checkbox" name="sentry_browser_enabled" value="1" {% if runtime_settings['sentry_browser_enabled'] == '1' %}checked{% endif %}>
+          <span>Enable browser Sentry capture</span>
+        </label>
+        <label>
+          <span>Browser DSN{% if masked_settings.get('sentry_browser_dsn') %} · {{ masked_settings['sentry_browser_dsn'] }}{% endif %}</span>
+          <input type="password" name="sentry_browser_dsn" placeholder="Leave blank to keep existing">
+        </label>
+        <label>
+          <span>Trace Sample Rate</span>
+          <input type="number" step="0.01" min="0" max="1" name="sentry_traces_sample_rate" value="{{ runtime_settings['sentry_traces_sample_rate'] }}">
+        </label>
+        <label>
+          <span>Profile Sample Rate</span>
+          <input type="number" step="0.01" min="0" max="1" name="sentry_profiles_sample_rate" value="{{ runtime_settings['sentry_profiles_sample_rate'] }}">
+        </label>
+        <label>
+          <span>Replay Session Rate</span>
+          <input type="number" step="0.01" min="0" max="1" name="sentry_replays_session_sample_rate" value="{{ runtime_settings['sentry_replays_session_sample_rate'] }}">
+        </label>
+        <label>
+          <span>Replay On Error Rate</span>
+          <input type="number" step="0.01" min="0" max="1" name="sentry_replays_on_error_sample_rate" value="{{ runtime_settings['sentry_replays_on_error_sample_rate'] }}">
+        </label>
+        <label class="inline-check">
+          <input type="checkbox" name="sentry_debug_mode_default" value="1" {% if runtime_settings['sentry_debug_mode_default'] == '1' %}checked{% endif %}>
+          <span>Default all runs into Sentry debug mode</span>
+        </label>
+      </fieldset>
       <div class="form-actions">
         <button type="submit">Save Settings</button>
       </div>

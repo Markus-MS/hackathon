@@ -80,7 +80,11 @@ def dashboard():
 @bp.post("/settings")
 @admin_required
 def update_settings():
+    solver_tool = request.form.get("solver_tool", "docker").strip()
+    if solver_tool not in ("docker", "opencode"):
+        solver_tool = "docker"
     values = {
+        "solver_tool": solver_tool,
         "solver_image": request.form.get("solver_image", "").strip(),
         "solver_network": request.form.get("solver_network", "").strip() or "bridge",
         "runner_max_parallel_runs": request.form.get(
@@ -96,9 +100,12 @@ def update_settings():
         or "20",
         "solver_llm_timeout_seconds": request.form.get("solver_llm_timeout_seconds", "").strip()
         or "90",
+        "solver_grace_period_seconds": request.form.get("solver_grace_period_seconds", "").strip()
+        or "300",
         "solver_extra_env": request.form.get("solver_extra_env", "").strip(),
         "opencode_config_dir": request.form.get("opencode_config_dir", "").strip(),
         "opencode_data_dir": request.form.get("opencode_data_dir", "").strip(),
+        "opencode_extra_args": request.form.get("opencode_extra_args", "").strip(),
         "sentry_enabled": "1" if request.form.get("sentry_enabled") == "1" else "0",
         "sentry_browser_enabled": "1" if request.form.get("sentry_browser_enabled") == "1" else "0",
         "sentry_traces_sample_rate": request.form.get("sentry_traces_sample_rate", "").strip() or "0.95",
