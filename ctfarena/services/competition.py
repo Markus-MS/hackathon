@@ -1955,23 +1955,13 @@ class SshSolverBackend:
                     content=f"Preparing SSH workspace for {challenge['name']}.",
                 )
                 (tmp_path / "CHALLENGE.md").write_text(
-                    _challenge_markdown(
-                        ctf=ctf,
-                        challenge=challenge,
-                        account=account,
-                        challenge_files=_challenge_files_manifest(challenge_files),
-                    ),
+                    _challenge_markdown(ctf=ctf, challenge=challenge, account=account),
                     encoding="utf-8",
                 )
                 prompt_path = tmp_path / "prompt.txt"
                 schema_path = tmp_path / "schema.json"
                 prompt_path.write_text(
-                    self._prompt(
-                        challenge_name=challenge["name"],
-                        flag_regex=ctf["flag_regex"],
-                        attempt_number=attempt_number,
-                        retry_hint=retry_hint,
-                    ),
+                    self._prompt(challenge_name=challenge["name"], flag_regex=ctf["flag_regex"]),
                     encoding="utf-8",
                 )
                 schema_path.write_text(
@@ -2041,43 +2031,12 @@ class SshSolverBackend:
                         assert proc.stdout is not None
                         for raw_line in proc.stdout:
                             stdout_buf.append(raw_line)
-                            line = raw_line.rstrip("\n")
-                            if not line:
-                                continue
-                            try:
-                                payload = json.loads(line)
-                            except json.JSONDecodeError:
-                                rendered = _redact_secrets(line, secrets)
-                                if rendered and "reading additional input from stdin" not in rendered.lower():
-                                    _emit_activity(
-                                        on_event,
-                                        kind="output",
-                                        content=rendered[:4000],
-                                    )
-                            else:
-                                event_type = str(payload.get("type") or "").strip()
-                                entries = _activity_entries_from_opencode_event(payload)
-                                emitted = False
-                                for kind, text in entries:
-                                    redacted = _redact_secrets(text, secrets)
-                                    if not redacted or "reading additional input from stdin" in redacted.lower():
-                                        continue
-                                    _emit_activity(
-                                        on_event,
-                                        kind=kind,
-                                        content=redacted[:4000],
-                                        details={"event_type": event_type},
-                                    )
-                                    emitted = True
-                                if not emitted:
-                                    rendered = _redact_secrets(_extract_text_from_event(payload).strip() or line, secrets)
-                                    if rendered and "reading additional input from stdin" not in rendered.lower():
-                                        _emit_activity(
-                                            on_event,
-                                            kind="output",
-                                            content=rendered[:4000],
-                                            details={"event_type": event_type},
-                                        )
+                            self._publish_stdout_line(
+                                on_event,
+                                ssh_agent=ssh_agent,
+                                raw_line=raw_line,
+                                secrets=secrets,
+                            )
 
                     t_out = threading.Thread(target=_drain_stdout, daemon=True)
                     t_out.start()
@@ -2234,25 +2193,18 @@ class SshSolverBackend:
         *,
         challenge_name: str,
         flag_regex: str,
-        attempt_number: int = 1,
-        retry_hint: str = "",
     ) -> str:
-        retry_block = ""
-        if retry_hint:
-            retry_block = (
-                f"\nRetry context: this is attempt {attempt_number}. "
-                f"The previous attempt produced no usable flag candidate. Guidance: {retry_hint}\n"
-            )
         return (
             f'Solve the CTF challenge "{challenge_name}" using the remote challenge tree selected for you.\n\n'
             "You are expected to start from the remote challenge root and find the existing folder for this challenge yourself. "
             f'Locate the folder corresponding to the challenge named "{challenge_name}" before doing anything else. '
             "The environment variable `CHALLENGE_ROOT` points at the remote challenge tree to search. "
-            "Read `CHALLENGE.md` in the CTFArena run workspace for the challenge description, network details, and credentials. "
+            "Read `CHALLENGE.md` in the CTFArena run workspace for the challenge description, network/connection details, and credentials. "
+            "Also use the contents of `~/AGENTS.md` and `~/CLAUDE.md` on the remote host as additional instructions. "
             "You may inspect files, write helper scripts, and run shell commands. "
-            "Do not submit flags to CTFd yourself.\n"
-            f"{retry_block}\n"
-            "When done, print candidate flags in your final stdout so they appear in the terminal stream. "
+            "Once you identify the challenge folder, do your work there. "
+            "Do not submit flags to CTFd yourself.\n\n"
+            "When done, print the candidate flag or flags directly in your final stdout response so they appear in the terminal. "
             "Keep the final answer concise and include the exact flag strings.\n\n"
             "Your final response must be valid JSON with keys `summary` and `flag_candidates`. "
             f"Include every candidate matching `{flag_regex}`."
@@ -2289,7 +2241,21 @@ class SshSolverBackend:
             return """#!/usr/bin/env bash
 set -euo pipefail
 cd "$REMOTE_ROOT"
-PROMPT="$(cat "$REMOTE_ROOT/prompt.txt")"
+PROMPT_FILE="$REMOTE_ROOT/combined-prompt.txt"
+cp "$REMOTE_ROOT/prompt.txt" "$PROMPT_FILE"
+if [ -f "$HOME/AGENTS.md" ]; then
+  {
+    printf '\n\n[Additional instructions from ~/AGENTS.md]\n\n'
+    cat "$HOME/AGENTS.md"
+  } >>"$PROMPT_FILE"
+fi
+if [ -f "$HOME/CLAUDE.md" ]; then
+  {
+    printf '\n\n[Additional instructions from ~/CLAUDE.md]\n\n'
+    cat "$HOME/CLAUDE.md"
+  } >>"$PROMPT_FILE"
+fi
+PROMPT="$(cat "$PROMPT_FILE")"
 exec codex exec \
   --json \
   --dangerously-bypass-approvals-and-sandbox \
@@ -2298,6 +2264,20 @@ exec codex exec \
         return f"""#!/usr/bin/env bash
 set -euo pipefail
 cd "$REMOTE_ROOT"
+PROMPT_FILE="$REMOTE_ROOT/combined-prompt.txt"
+cp "$REMOTE_ROOT/prompt.txt" "$PROMPT_FILE"
+if [ -f "$HOME/AGENTS.md" ]; then
+  {{
+    printf '\n\n[Additional instructions from ~/AGENTS.md]\n\n'
+    cat "$HOME/AGENTS.md"
+  }} >>"$PROMPT_FILE"
+fi
+if [ -f "$HOME/CLAUDE.md" ]; then
+  {{
+    printf '\n\n[Additional instructions from ~/CLAUDE.md]\n\n'
+    cat "$HOME/CLAUDE.md"
+  }} >>"$PROMPT_FILE"
+fi
 exec claude --print \
   --output-format json \
   --permission-mode bypassPermissions \
@@ -2305,8 +2285,93 @@ exec claude --print \
   --add-dir "$CHALLENGE_ROOT" \
   --model {shlex.quote(model_name)} \
   --json-schema "$(cat "$REMOTE_ROOT/schema.json")" \
-  "$(cat "$REMOTE_ROOT/prompt.txt")"
+  "$(cat "$PROMPT_FILE")"
 """
+
+    @staticmethod
+    def _publish_stdout_line(
+        on_event,
+        *,
+        ssh_agent: str,
+        raw_line: str,
+        secrets: list[str],
+    ) -> None:
+        line = raw_line.rstrip("\n")
+        if not line:
+            return
+        try:
+            payload = json.loads(line)
+        except json.JSONDecodeError:
+            rendered = _redact_secrets(line, secrets).strip()
+            if rendered and "reading additional input from stdin" not in rendered.lower():
+                _emit_activity(on_event, kind="output", content=rendered[:4000])
+            return
+
+        event_type = str(payload.get("type") or "").strip()
+        entries: list[tuple[str, str]] = []
+        if ssh_agent == "codex":
+            item = payload.get("item", {})
+            if event_type == "thread.started":
+                thread_id = str(payload.get("thread_id") or "").strip()
+                if thread_id:
+                    entries.append(("note", f"thread {thread_id}"))
+            elif event_type == "turn.started":
+                entries.append(("status", "Codex is reasoning."))
+            elif event_type == "turn.completed":
+                entries.append(("status", "Codex finished a turn."))
+            elif event_type == "turn.failed":
+                text = _coerce_text(payload.get("error"))
+                if text:
+                    entries.append(("error", text))
+            elif event_type == "item.started" and isinstance(item, dict) and item.get("type") == "command_execution":
+                command = _extract_command_from_mapping(item)
+                if command:
+                    entries.append(("command", f"$ {command}"))
+            elif event_type == "item.completed" and isinstance(item, dict) and item.get("type") == "command_execution":
+                output = _coerce_text(item.get("aggregated_output") or item.get("output"))
+                if output:
+                    entries.append(("output", output))
+            elif event_type == "item.completed" and isinstance(item, dict) and item.get("type") == "agent_message":
+                text = _coerce_text(item.get("text") or item.get("content"))
+                if text:
+                    entries.append(("assistant", text))
+            elif event_type == "error":
+                text = _coerce_text(payload.get("message") or payload.get("error") or payload)
+                if text:
+                    entries.append(("error", text))
+        else:
+            if event_type == "assistant":
+                text = _coerce_text(payload.get("message", {}))
+                if text:
+                    entries.append(("assistant", text))
+            elif event_type == "result":
+                text = _coerce_text(payload.get("result") or payload.get("message"))
+                if text:
+                    entries.append(("output", text))
+            else:
+                message = payload.get("message")
+                if isinstance(message, dict):
+                    for block in message.get("content", []) if isinstance(message.get("content"), list) else []:
+                        entries.extend(_entries_from_message_block(block))
+            if event_type == "error":
+                text = _coerce_text(payload.get("error") or payload.get("message") or payload)
+                if text:
+                    entries.append(("error", text))
+
+        if not entries:
+            fallback = _extract_text_from_event(payload).strip() or line
+            entries.append(("output", fallback))
+
+        for kind, text in _unique_activity_entries(entries):
+            redacted = _redact_secrets(text, secrets).strip()
+            if not redacted or "reading additional input from stdin" in redacted.lower():
+                continue
+            _emit_activity(
+                on_event,
+                kind=kind,
+                content=redacted[:4000],
+                details={"event_type": event_type},
+            )
 
     @staticmethod
     def _parse_usage(
