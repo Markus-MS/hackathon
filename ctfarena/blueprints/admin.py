@@ -487,6 +487,20 @@ def sync_ctf(ctf_id: int):
     return redirect(url_for("admin.dashboard"))
 
 
+@bp.post("/ctfs/<int:ctf_id>/delete")
+@admin_required
+def delete_ctf(ctf_id: int):
+    db = get_db()
+    ctf = ctf_service.delete_ctf(db, ctf_id)
+    if ctf is None:
+        flash("Unknown CTF.", "error")
+        return redirect(url_for("admin.dashboard"))
+    
+    capture_admin_action("ctf.delete", status="success", payload={"ctf_id": ctf_id, "title": ctf["title"]})
+    flash(f"Deleted CTF '{ctf['title']}'.", "success")
+    return redirect(url_for("admin.dashboard"))
+
+
 @bp.post("/ctfs/<int:ctf_id>/accounts/<int:model_id>")
 @admin_required
 def upsert_account(ctf_id: int, model_id: int):
