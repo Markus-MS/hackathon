@@ -21,6 +21,7 @@ import signal
 import struct
 import termios
 import subprocess
+import threading
 from pathlib import Path
 
 from flask import Flask, Response, send_file
@@ -73,6 +74,15 @@ BG_COLORS = {
     107: "#f9fafb",
 }
 
+DEFAULT_MODEL_INSTRUCTIONS = (
+    "Solve the task with minimal prose. Do not narrate your plan or explain what you are about to do. "
+    "Keep assistant text extremely brief. Prefer doing the work and running commands over describing it. "
+    "Only write short user-facing text when necessary to clarify a result or blocker."
+)
+MAX_OUTPUT_LINES = 80
+TRUNCATED_HEAD_LINES = 32
+TRUNCATED_TAIL_LINES = 20
+
 HTML = """<!doctype html>
 <html lang="en">
   <head>
@@ -82,11 +92,11 @@ HTML = """<!doctype html>
     <style>
       :root {
         color-scheme: dark;
-        --panel: rgba(10, 16, 28, 0.82);
-        --border: rgba(150, 180, 255, 0.18);
-        --text: #d8e2ff;
-        --muted: #8ea4d2;
-        --accent: #6ee7b7;
+        --panel: rgba(0, 0, 0, 0.94);
+        --border: rgba(255, 255, 255, 0.12);
+        --text: #f5f5f5;
+        --muted: #a3a3a3;
+        --accent: #ffffff;
       }
 
       * {
@@ -98,70 +108,37 @@ HTML = """<!doctype html>
         min-height: 100vh;
         font-family: "IBM Plex Sans", "Segoe UI", sans-serif;
         color: var(--text);
-        background:
-          radial-gradient(circle at top left, rgba(71, 126, 255, 0.22), transparent 35%),
-          radial-gradient(circle at bottom right, rgba(110, 231, 183, 0.14), transparent 28%),
-          linear-gradient(135deg, #0b1220, #111a2d 55%, #0d1422);
+        background: #ffffff;
       }
 
       .shell {
-        width: min(1100px, calc(100vw - 32px));
+        width: min(1320px, calc(100vw - 32px));
         margin: 24px auto;
-        padding: 18px;
-        border: 1px solid var(--border);
-        border-radius: 18px;
-        background: var(--panel);
-        backdrop-filter: blur(12px);
-        box-shadow: 0 22px 80px rgba(0, 0, 0, 0.35);
+        padding: 0;
       }
 
-      .topbar {
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
+      .compare {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
         gap: 16px;
-        margin-bottom: 14px;
       }
 
-      .title {
-        font-size: 14px;
-        letter-spacing: 0.12em;
-        text-transform: uppercase;
-        color: var(--muted);
-      }
-
-      .status {
-        font-size: 13px;
-        color: var(--accent);
-        display: inline-flex;
-        align-items: center;
-        gap: 8px;
-      }
-
-      .status::before {
-        content: "";
-        width: 9px;
-        height: 9px;
-        border-radius: 999px;
-        background: currentColor;
-        box-shadow: 0 0 16px currentColor;
-      }
-
-      #terminal {
+      .terminal {
         height: min(75vh, 760px);
         padding: 14px;
         border-radius: 14px;
         border: 1px solid rgba(255, 255, 255, 0.08);
-        background: rgba(4, 8, 16, 0.94);
-        overflow: auto;
+        background: #000000;
+        overflow: hidden;
         font-family: "IBM Plex Mono", "Fira Code", monospace;
         font-size: 15px;
         line-height: 1.45;
         scrollbar-width: none;
         -ms-overflow-style: none;
+        box-shadow: 0 22px 80px rgba(0, 0, 0, 0.32);
       }
 
-      #terminal::-webkit-scrollbar {
+      .terminal::-webkit-scrollbar {
         display: none;
       }
 
@@ -233,137 +210,170 @@ HTML = """<!doctype html>
         vertical-align: middle;
       }
 
+      .cursor-model-pill.claude {
+        color: #fff7f4;
+        background: #DE7356;
+        border-color: #DE7356;
+        box-shadow: 0 8px 24px rgba(222, 115, 86, 0.32);
+      }
+
       .cursor-model-pill img {
         width: 1.05em;
         height: 1.05em;
         display: block;
       }
 
+      @media (max-width: 960px) {
+        .compare {
+          grid-template-columns: 1fr;
+        }
+      }
+
     </style>
   </head>
   <body>
     <main class="shell">
-      <div class="topbar">
-        <div class="title">Browser Output</div>
-        <div class="status" id="status">Connecting</div>
+      <div class="compare">
+        <div class="terminal" id="terminal-codex" aria-live="polite"></div>
+        <div class="terminal" id="terminal-claude" aria-live="polite"></div>
       </div>
-      <div id="terminal" aria-live="polite"></div>
     </main>
 
     <script>
-      const statusEl = document.getElementById("status");
-      const terminalEl = document.getElementById("terminal");
+      const terminals = {
+        codex: createTerminalController(document.getElementById("terminal-codex")),
+        claude: createTerminalController(document.getElementById("terminal-claude")),
+      };
       const proto = location.protocol === "https:" ? "wss" : "ws";
       const socket = new WebSocket(`${proto}://${location.host}/ws`);
-      const renderQueue = [];
-      let renderActive = false;
+      function createTerminalController(terminalEl) {
+        const renderQueue = [];
+        let renderActive = false;
+        let parkedPill = null;
 
-      function scrollToBottom() {
-        terminalEl.scrollTop = terminalEl.scrollHeight;
-      }
+        function scrollToBottom() {
+          terminalEl.scrollTop = terminalEl.scrollHeight;
+        }
 
-      function appendHtml(html, animate) {
-        terminalEl.insertAdjacentHTML("beforeend", html);
-        if (animate) {
-          const last = terminalEl.lastElementChild;
-          if (last) {
-            last.classList.add("reveal");
+        function appendHtml(html, animate) {
+          terminalEl.insertAdjacentHTML("beforeend", html);
+          if (animate) {
+            const last = terminalEl.lastElementChild;
+            if (last) {
+              last.classList.add("reveal");
+            }
+          }
+          scrollToBottom();
+        }
+
+        function stripWrapper(html) {
+          const match = html.match(/^<span class="([^"]*)">(.*)<\\/span>$/s);
+          if (!match) {
+            return null;
+          }
+          return { className: match[1], innerHtml: match[2] };
+        }
+
+        function enqueueRender(item) {
+          renderQueue.push(item);
+          if (!renderActive) {
+            drainRenderQueue();
           }
         }
-        scrollToBottom();
-      }
 
-      function stripWrapper(html) {
-        const match = html.match(/^<span class="([^"]*)">(.*)<\\/span>$/s);
-        if (!match) {
-          return null;
-        }
-        return { className: match[1], innerHtml: match[2] };
-      }
+        function drainRenderQueue() {
+          if (renderQueue.length === 0) {
+            renderActive = false;
+            return;
+          }
+          renderActive = true;
+          const { html, mode, animate, delayMs, badge, modelLabel } = renderQueue.shift();
 
-      function enqueueRender(item) {
-        renderQueue.push(item);
-        if (!renderActive) {
-          drainRenderQueue();
-        }
-      }
-
-      function drainRenderQueue() {
-        if (renderQueue.length === 0) {
-          renderActive = false;
-          return;
-        }
-        renderActive = true;
-        const { html, mode, animate, delayMs, badge, modelLabel } = renderQueue.shift();
-
-        if (mode !== "type") {
-          appendHtml(html, !!animate);
-          drainRenderQueue();
-          return;
-        }
-
-        const wrapped = stripWrapper(html);
-        if (!wrapped) {
-          appendHtml(html, false);
-          drainRenderQueue();
-          return;
-        }
-
-        const line = document.createElement("span");
-        line.className = wrapped.className;
-        const container = document.createElement("span");
-        container.className = "typing-cursor";
-        const textNode = document.createElement("span");
-        container.appendChild(textNode);
-        line.appendChild(container);
-
-        if (badge && modelLabel) {
-          const pill = document.createElement("span");
-          pill.className = "cursor-model-pill";
-          const icon = document.createElement("img");
-          icon.src = badge;
-          icon.alt = "";
-          icon.setAttribute("aria-hidden", "true");
-          const label = document.createElement("span");
-          label.textContent = modelLabel;
-          pill.appendChild(icon);
-          pill.appendChild(label);
-          container.appendChild(pill);
-        }
-
-        terminalEl.appendChild(line);
-
-        const source = document.createElement("div");
-        source.innerHTML = wrapped.innerHtml;
-        const text = source.textContent || "";
-        let index = 0;
-
-        function tick() {
-          if (index >= text.length) {
-            container.classList.remove("typing-cursor");
-            container.innerHTML = wrapped.innerHtml;
-            scrollToBottom();
+          if (mode !== "type") {
+            appendHtml(html, !!animate);
             drainRenderQueue();
             return;
           }
-          index += 1;
-          textNode.textContent = text.slice(0, index);
-          scrollToBottom();
-          window.setTimeout(tick, delayMs);
+
+          const wrapped = stripWrapper(html);
+          if (!wrapped) {
+            appendHtml(html, false);
+            drainRenderQueue();
+            return;
+          }
+
+          const line = document.createElement("span");
+          line.className = wrapped.className;
+          const container = document.createElement("span");
+          container.className = "typing-cursor";
+          const textNode = document.createElement("span");
+          container.appendChild(textNode);
+          line.appendChild(container);
+
+          if (parkedPill) {
+            parkedPill.remove();
+            parkedPill = null;
+          }
+
+          let pill = null;
+          if (badge && modelLabel) {
+            pill = document.createElement("span");
+            pill.className = "cursor-model-pill";
+            if (modelLabel === "sonnet4.6") {
+              pill.classList.add("claude");
+            }
+          const icon = document.createElement("img");
+          icon.src = badge;
+            icon.alt = "";
+            icon.setAttribute("aria-hidden", "true");
+            const label = document.createElement("span");
+            label.textContent = modelLabel;
+            pill.appendChild(icon);
+            pill.appendChild(label);
+            container.appendChild(pill);
+          }
+
+          terminalEl.appendChild(line);
+
+          const source = document.createElement("div");
+          source.innerHTML = wrapped.innerHtml;
+          const text = source.textContent || "";
+          let index = 0;
+
+          function tick() {
+            if (index >= text.length) {
+              container.classList.remove("typing-cursor");
+              textNode.textContent = text;
+              if (pill) {
+                parkedPill = pill;
+              }
+              scrollToBottom();
+              drainRenderQueue();
+              return;
+            }
+            index += 1;
+            textNode.textContent = text.slice(0, index);
+            scrollToBottom();
+            window.setTimeout(tick, delayMs);
+          }
+
+          tick();
         }
 
-        tick();
+        return { enqueueRender, scrollToBottom };
       }
 
-      socket.addEventListener("open", () => {
-        statusEl.textContent = "Streaming";
-      });
+      socket.addEventListener("open", () => {});
 
       socket.addEventListener("message", (event) => {
         const payload = JSON.parse(event.data);
+        const terminal = terminals[payload.target];
+        if (!terminal) {
+          return;
+        }
         if (payload.type === "append") {
           if (payload.animate_mode === "type") {
-            enqueueRender({
+            terminal.enqueueRender({
               html: payload.html,
               mode: "type",
               delayMs: payload.delay_ms || 28,
@@ -371,28 +381,22 @@ HTML = """<!doctype html>
               modelLabel: payload.model_label || "",
             });
           } else {
-            enqueueRender({
+            terminal.enqueueRender({
               html: payload.html,
               mode: "append",
               animate: !!payload.animate,
             });
           }
-        } else if (payload.type === "status") {
-          if (payload.status) {
-            statusEl.textContent = payload.status;
-          }
         }
-        scrollToBottom();
+        terminal.scrollToBottom();
       });
 
       socket.addEventListener("close", () => {
-        statusEl.textContent = "Finished";
-        scrollToBottom();
+        terminals.codex.scrollToBottom();
+        terminals.claude.scrollToBottom();
       });
 
-      socket.addEventListener("error", () => {
-        statusEl.textContent = "Error";
-      });
+      socket.addEventListener("error", () => {});
     </script>
   </body>
 </html>
@@ -475,42 +479,59 @@ def resolve_command(args: argparse.Namespace) -> list[str]:
     return command
 
 
-def adapt_command(command: list[str]) -> tuple[list[str], str]:
+def resolve_prompt(command: list[str]) -> str:
     if not command:
-        raise SystemExit("No command configured.")
+        raise SystemExit("No prompt configured.")
+    if command[0] == "codex" and len(command) > 1:
+        return " ".join(command[1:])
+    if command[0] == "claude" and len(command) > 1:
+        return " ".join(command[1:])
+    return " ".join(command)
 
-    if command[0] == "codex":
-        if len(command) == 1:
-            return ["codex", "exec", "--json"], "codex_json"
-        if command[1] not in {
-            "exec",
-            "review",
-            "login",
-            "logout",
-            "mcp",
-            "marketplace",
-            "mcp-server",
-            "app-server",
-            "completion",
-            "sandbox",
-            "debug",
-            "apply",
-            "resume",
-            "fork",
-            "cloud",
-            "exec-server",
-            "features",
-            "help",
-        } and not command[1].startswith("-"):
-            return ["codex", "exec", "--json", *command[1:]], "codex_json"
 
-    if command[0] == "claude":
-        if "-p" not in command and "--print" not in command:
-            return ["claude", "-p", "--verbose", "--output-format", "stream-json", *command[1:]], "claude_json"
-        if "--output-format" in command or any(part.startswith("--output-format=") for part in command):
-            return command, "claude_json"
+def get_model_instructions() -> str:
+    return os.environ.get("LIVE_TERMINAL_MODEL_INSTRUCTIONS", DEFAULT_MODEL_INSTRUCTIONS).strip()
 
-    return command, "pty"
+
+def augment_prompt(prompt: str) -> str:
+    instructions = get_model_instructions()
+    if not instructions:
+        return prompt
+    return f"{prompt}\n\nAdditional instructions:\n{instructions}"
+
+
+def build_compare_commands(prompt: str) -> list[dict[str, object]]:
+    augmented = augment_prompt(prompt)
+    return [
+        {
+            "target": "codex",
+            "command": [
+                "codex",
+                "exec",
+                "--json",
+                "--dangerously-bypass-approvals-and-sandbox",
+                augmented,
+            ],
+            "mode": "codex_json",
+            "badge": "/assets/openai.png",
+            "model_label": "gpt5.4",
+        },
+        {
+            "target": "claude",
+            "command": [
+                "claude",
+                "-p",
+                "--verbose",
+                "--output-format",
+                "stream-json",
+                "--dangerously-skip-permissions",
+                augmented,
+            ],
+            "mode": "claude_json",
+            "badge": "/assets/claude.png",
+            "model_label": "sonnet4.6",
+        },
+    ]
 
 
 def set_winsize(fd: int, rows: int, cols: int) -> None:
@@ -562,8 +583,21 @@ def render_text_block(text: str, extra_class: str = "") -> list[str]:
     return [render_line(line, extra_class) for line in lines]
 
 
+def truncate_output_text(text: str) -> str:
+    normalized = text.replace("\r\n", "\n").replace("\r", "\n")
+    lines = normalized.split("\n")
+    if len(lines) <= MAX_OUTPUT_LINES:
+        return normalized
+
+    omitted = len(lines) - TRUNCATED_HEAD_LINES - TRUNCATED_TAIL_LINES
+    middle = f"... [{omitted} lines omitted] ..."
+    kept = lines[:TRUNCATED_HEAD_LINES] + [middle] + lines[-TRUNCATED_TAIL_LINES:]
+    return "\n".join(kept)
+
+
 def send_append(
     ws,
+    target: str,
     html_content: str,
     *,
     animate: bool = False,
@@ -572,7 +606,7 @@ def send_append(
     badge: str | None = None,
     model_label: str | None = None,
 ) -> None:
-    payload: dict[str, object] = {"type": "append", "html": html_content, "animate": animate}
+    payload: dict[str, object] = {"type": "append", "target": target, "html": html_content, "animate": animate}
     if animate_mode is not None:
         payload["animate_mode"] = animate_mode
     if delay_ms is not None:
@@ -581,18 +615,24 @@ def send_append(
         payload["badge"] = badge
     if model_label is not None:
         payload["model_label"] = model_label
-    ws.send(json.dumps(payload))
+    lock = getattr(ws, "_send_lock", None)
+    if lock is not None:
+        with lock:
+            ws.send(json.dumps(payload))
+    else:
+        ws.send(json.dumps(payload))
 
 
 def send_status(
     ws,
+    target: str,
     *,
     status: str | None = None,
     phase: str | None = None,
     commands: int | None = None,
     messages: int | None = None,
 ) -> None:
-    payload: dict[str, object] = {"type": "status"}
+    payload: dict[str, object] = {"type": "status", "target": target}
     if status is not None:
         payload["status"] = status
     if phase is not None:
@@ -604,7 +644,12 @@ def send_status(
         metrics["messages"] = messages
     if metrics:
         payload["metrics"] = metrics
-    ws.send(json.dumps(payload))
+    lock = getattr(ws, "_send_lock", None)
+    if lock is not None:
+        with lock:
+            ws.send(json.dumps(payload))
+    else:
+        ws.send(json.dumps(payload))
 
 
 def codex_event_to_html(payload: dict) -> list[tuple[str, bool]]:
@@ -623,7 +668,7 @@ def codex_event_to_html(payload: dict) -> list[tuple[str, bool]]:
     elif event_type == "item.completed" and item.get("type") == "command_execution":
         output = item.get("aggregated_output", "")
         if output:
-            chunks.append((ansi_to_html_lines(output), False))
+            chunks.append((ansi_to_html_lines(truncate_output_text(output)), False))
 
     return chunks
 
@@ -639,21 +684,41 @@ def claude_event_to_html(payload: dict) -> list[tuple[str, bool]]:
                 text = block.get("text", "")
                 if text:
                     chunks.extend((line, True) for line in render_text_block(text))
+            elif block.get("type") == "tool_use":
+                tool_name = block.get("name", "")
+                tool_input = block.get("input", {})
+                command = tool_input.get("command", "").strip()
+                if tool_name == "Bash" and command:
+                    chunks.append((render_line(f"$ {command}", "command"), True))
     elif event_type == "result":
         result = payload.get("result", "")
         if result:
             chunks.extend((line, True) for line in render_text_block(result))
+    elif event_type == "user":
+        message = payload.get("message", {})
+        for block in message.get("content", []):
+            if block.get("type") == "tool_result":
+                content = block.get("content", "")
+                if content:
+                    chunks.append((ansi_to_html_lines(truncate_output_text(content)), False))
 
     return chunks
 
 
-def stream_json_command(ws, command: list[str], mode: str) -> int:
+def stream_json_command(
+    ws,
+    target: str,
+    command: list[str],
+    mode: str,
+    badge: str | None,
+    model_label: str | None,
+) -> int:
     process = spawn_pipe_process(command)
     assert process.stdout is not None
     parser = codex_event_to_html if mode == "codex_json" else claude_event_to_html
     command_count = 0
     message_count = 0
-    send_status(ws, status="Streaming", phase="starting", commands=0, messages=0)
+    send_status(ws, target, status="Streaming", phase="starting", commands=0, messages=0)
     try:
         for raw_line in process.stdout:
             line = raw_line.rstrip("\n")
@@ -664,34 +729,33 @@ def stream_json_command(ws, command: list[str], mode: str) -> int:
             except json.JSONDecodeError:
                 cleaned = sanitize_ansi(line)
                 if cleaned and cleaned != "Reading additional input from stdin...":
-                    send_append(ws, render_line(cleaned, "note"))
+                    send_append(ws, target, render_line(cleaned, "note"))
                 continue
             if mode == "codex_json":
                 event_type = payload.get("type")
                 item = payload.get("item", {})
                 if event_type == "turn.started":
-                    send_status(ws, status="Thinking", phase="thinking", commands=command_count, messages=message_count)
+                    send_status(ws, target, status="Thinking", phase="thinking", commands=command_count, messages=message_count)
                 elif event_type == "item.started" and item.get("type") == "command_execution":
                     command_count += 1
-                    send_status(ws, status="Running command", phase="tool call", commands=command_count, messages=message_count)
+                    send_status(ws, target, status="Running command", phase="tool call", commands=command_count, messages=message_count)
                 elif event_type == "item.completed" and item.get("type") == "agent_message":
                     message_count += 1
-                    send_status(ws, status="Reasoning", phase="assistant", commands=command_count, messages=message_count)
+                    send_status(ws, target, status="Reasoning", phase="assistant", commands=command_count, messages=message_count)
                 elif event_type == "turn.completed":
-                    send_status(ws, status="Turn complete", phase="done", commands=command_count, messages=message_count)
+                    send_status(ws, target, status="Turn complete", phase="done", commands=command_count, messages=message_count)
             elif mode == "claude_json":
                 event_type = payload.get("type")
                 if event_type == "assistant":
                     message_count += 1
-                    send_status(ws, status="Reasoning", phase="assistant", commands=command_count, messages=message_count)
+                    send_status(ws, target, status="Reasoning", phase="assistant", commands=command_count, messages=message_count)
                 elif event_type == "result":
-                    send_status(ws, status="Turn complete", phase="done", commands=command_count, messages=message_count)
+                    send_status(ws, target, status="Turn complete", phase="done", commands=command_count, messages=message_count)
             for chunk, should_type in parser(payload):
                 if should_type:
-                    badge = "/assets/openai.png" if mode == "codex_json" else None
-                    model_label = "gpt5.4" if mode == "codex_json" else None
                     send_append(
                         ws,
+                        target,
                         chunk,
                         animate_mode="type",
                         delay_ms=32,
@@ -699,7 +763,7 @@ def stream_json_command(ws, command: list[str], mode: str) -> int:
                         model_label=model_label,
                     )
                 else:
-                    send_append(ws, chunk)
+                    send_append(ws, target, chunk)
     finally:
         process.stdout.close()
     return process.wait()
@@ -720,57 +784,43 @@ def openai_badge():
     return send_file(MODULE_DIR / "openai.png", mimetype="image/png")
 
 
+@app.get("/assets/claude.png")
+def claude_badge():
+    return send_file(MODULE_DIR / "claude.png", mimetype="image/png")
+
+
 @sock.route("/ws")
 def terminal_socket(ws):
-    command = app.config["LIVE_TERMINAL_COMMAND"]
-    mode = app.config["LIVE_TERMINAL_MODE"]
+    ws._send_lock = threading.Lock()
+    prompt = app.config["LIVE_TERMINAL_PROMPT"]
+    compare_runs = build_compare_commands(prompt)
+    threads: list[threading.Thread] = []
 
-    if mode in {"codex_json", "claude_json"}:
-        exit_code = stream_json_command(ws, command, mode)
-        send_status(ws, status="Finished", phase="done")
-        return
+    for run in compare_runs:
+        def runner(run_config=run):
+            stream_json_command(
+                ws,
+                run_config["target"],
+                run_config["command"],
+                run_config["mode"],
+                run_config["badge"],
+                run_config["model_label"],
+            )
+            send_status(ws, run_config["target"], status="Finished", phase="done")
 
-    pid, fd = spawn_pty_process(command)
-    exit_code = 1
-    try:
-        while True:
-            ready, _, _ = select.select([fd], [], [], 0.1)
-            if fd not in ready:
-                child_pid, status = os.waitpid(pid, os.WNOHANG)
-                if child_pid == pid:
-                    exit_code = os.waitstatus_to_exitcode(status)
-                    break
-                continue
-            try:
-                chunk = os.read(fd, 4096)
-            except OSError as exc:
-                if exc.errno in {errno.EIO, errno.EBADF}:
-                    _, status = os.waitpid(pid, 0)
-                    exit_code = os.waitstatus_to_exitcode(status)
-                    break
-                raise
-            if not chunk:
-                _, status = os.waitpid(pid, 0)
-                exit_code = os.waitstatus_to_exitcode(status)
-                break
-            send_append(ws, ansi_to_html_lines(chunk.decode(errors="replace")))
-    finally:
-        try:
-            os.close(fd)
-        except OSError:
-            pass
-        try:
-            os.kill(pid, signal.SIGHUP)
-        except ProcessLookupError:
-            pass
-        send_status(ws, status="Finished", phase="done")
+        thread = threading.Thread(target=runner, daemon=True)
+        thread.start()
+        threads.append(thread)
+
+    for thread in threads:
+        thread.join()
 
 
 def main():
     args = parse_args()
     app.config["LIVE_TERMINAL_HOST"] = args.host
     app.config["LIVE_TERMINAL_PORT"] = args.port
-    app.config["LIVE_TERMINAL_COMMAND"], app.config["LIVE_TERMINAL_MODE"] = adapt_command(resolve_command(args))
+    app.config["LIVE_TERMINAL_PROMPT"] = resolve_prompt(resolve_command(args))
     app.run(
         host=app.config["LIVE_TERMINAL_HOST"],
         port=app.config["LIVE_TERMINAL_PORT"],

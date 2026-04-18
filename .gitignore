@@ -1,3 +1,33 @@
 TEMP.md
 instance/
 __pycache__/
+
+# Python caches and build artifacts
+*.py[cod]
+*.pyo
+*.pyd
+*.so
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+.coverage.*
+htmlcov/
+dist/
+build/
+*.egg-info/
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Local runtime files
+*.log
+*.pid
+*.sock
+
+# Editor and OS noise
+.DS_Store
+.idea/
+.vscode/
