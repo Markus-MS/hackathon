@@ -95,13 +95,21 @@ def api_dashboard_for_ctf(ctf_id: int):
 @frontend_bp.get("/api/details")
 def api_details():
     db = get_db()
+    recent_ctfs = [serialize_recent_ctf(row) for row in ctf_service.list_ctfs(db)]
     ctf = ctf_service.get_active_ctf(db)
     if ctf is None:
-        return jsonify({"ctf": None, "summary": "No active CTF is configured."})
+        return jsonify(
+            {
+                "ctf": None,
+                "summary": "No active CTF is configured.",
+                "recent_ctfs": recent_ctfs,
+            }
+        )
     return jsonify(
         {
             "ctf": serialize_ctf(ctf),
             "overview": leaderboard.build_ctf_overview(db, ctf["id"]),
+            "recent_ctfs": recent_ctfs,
         }
     )
 

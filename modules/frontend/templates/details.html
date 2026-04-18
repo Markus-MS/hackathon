@@ -1,16 +1,16 @@
 {% extends "frontend_base.html" %}
+{% set show_ctf_nav = true %}
 
-{% block title %}{{ app_name }} Details{% endblock %}
+{% block title %}CTFArena{% endblock %}
 
 {% block content %}
-  <section class="panel details-panel">
+  <section>
     <p class="eyebrow">Details</p>
     <h1 id="title">Details</h1>
     <p class="subtitle" id="summary">Loading active CTF metadata...</p>
     <div class="meta" id="meta"></div>
     <div id="challenge-overview" class="challenge-overview-grid" hidden></div>
     <section id="terminal-grid" class="terminal-grid" hidden></section>
-    <a class="details-link" href="{{ url_for('frontend.index') }}">Back Home</a>
   </section>
 {% endblock %}
 
@@ -35,13 +35,46 @@
       meta.appendChild(card);
     }
 
-    function money(value) {
-      return `$${Number(value || 0).toFixed(4)}`;
-    }
-
     function seconds(value) {
       if (value == null) return "n/a";
       return `${Number(value).toFixed(1)}s`;
+    }
+
+    function ctfUrl(ctfId) {
+      return `/ctfs/${encodeURIComponent(ctfId)}`;
+    }
+
+    function renderCtfNav(data) {
+      const nav = document.getElementById("ctf-nav-buttons");
+      if (!nav) return;
+      nav.replaceChildren();
+
+      const currentId = data.ctf ? Number(data.ctf.id) : null;
+      const seen = new Set();
+      const entries = [];
+
+      for (const item of (data.recent_ctfs || [])) {
+        const id = Number(item.id);
+        if (Number.isNaN(id) || seen.has(id)) continue;
+        entries.push({ id, title: item.title });
+        seen.add(id);
+      }
+
+      if (data.ctf && data.ctf.id != null && !seen.has(Number(data.ctf.id))) {
+        entries.push({ id: Number(data.ctf.id), title: data.ctf.title });
+      }
+
+      for (const entry of entries) {
+        const link = document.createElement("a");
+        link.className = "ctf-switch-btn";
+        link.textContent = entry.title;
+        link.href = ctfUrl(entry.id);
+        if (currentId != null && entry.id === currentId) {
+          link.classList.add("is-active");
+          link.setAttribute("aria-current", "page");
+        }
+        nav.appendChild(link);
+      }
     }
 
     function terminalKey(row) {
@@ -110,6 +143,7 @@
       let destroyed = false;
 
       function setStreamState(label, tone = "idle") {
+        if (!streamState) return;
         streamState.textContent = label;
         streamState.dataset.state = tone;
       }
@@ -177,7 +211,7 @@
           setPlaceholder(current.terminal_text || "Waiting for terminal activity…");
         }
         if (payload.done) {
-          setStreamState("Replay", "done");
+          setStreamState("Done", "done");
           stopStreaming();
         }
         return payload;
@@ -216,7 +250,7 @@
             setPlaceholder(current.terminal_text || "Waiting for terminal activity…");
           }
           if (payload.done) {
-            setStreamState("Replay", "done");
+            setStreamState("Done", "done");
             stopStreaming();
           }
         };
@@ -265,7 +299,7 @@
         }
         if (nowDone) {
           fetchActivity().catch(() => {});
-          setStreamState("Replay", "done");
+          setStreamState("Done", "done");
           stopStreaming();
         } else if (!eventSource && !pollTimer) {
           connectStream();
@@ -303,9 +337,7 @@
       const right = document.createElement("div");
       right.className = "terminal-head-actions";
 
-      const streamState = document.createElement("span");
-      streamState.className = "terminal-stream-state";
-      right.appendChild(streamState);
+      const streamState = null;
 
       const status = document.createElement("span");
       status.className = `pill pill-${row.status}`;
@@ -339,9 +371,6 @@
         meta.replaceChildren();
         const metrics = [
           `Provider: ${nextRow.provider || "n/a"}`,
-          `Cost: ${money(nextRow.cost_usd)}`,
-          `Attempts: ${nextRow.flag_attempts || 0}`,
-          `Turns: ${nextRow.turns || 0}`,
           `Solve Time: ${seconds(nextRow.solve_time_seconds)}`,
         ];
         for (const metric of metrics) {
@@ -448,6 +477,7 @@
         throw new Error("Failed to fetch details");
       }
       const data = await response.json();
+      renderCtfNav(data);
       const meta = document.getElementById("meta");
       meta.replaceChildren();
 
@@ -465,7 +495,15 @@
       addMeta("Sandbox", data.ctf.sandbox_digest.slice(-16));
     }
 
+    async function loadHeaderNav() {
+      const response = await fetch(detailsApiUrl, { cache: "no-store" });
+      if (!response.ok) return;
+      const data = await response.json();
+      renderCtfNav(data);
+    }
+
     if (challengeApiUrl) {
+      loadHeaderNav().catch(() => {});
       loadChallengeDetails().catch((error) => {
         setText("summary", error.message);
       });
