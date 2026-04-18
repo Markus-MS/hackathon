@@ -461,6 +461,11 @@
                           <td>
                             <strong>{{ challenge_run["name"] }}</strong>
                             <small>{{ challenge_run["remote_id"] }}</small>
+                            {% if challenge_run["challenge_id"] %}
+                              <small>
+                                <a href="{{ url_for('frontend.challenge_details', ctf_id=ctf['id'], challenge_id=challenge_run['challenge_id']) }}">Open live view</a>
+                              </small>
+                            {% endif %}
                           </td>
                           <td><span class="pill pill-{{ challenge_run['status'] }}">{{ challenge_run["status"].replace("_", " ") }}</span></td>
                           <td>{{ challenge_run["flag_attempts"] }}</td>

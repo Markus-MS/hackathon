@@ -1,7 +1,10 @@
 from __future__ import annotations
 
 import json
+from pathlib import Path
+import re
 import sqlite3
+from urllib.parse import unquote, urlparse
 
 from flask import current_app
 
@@ -260,6 +263,18 @@ def list_challenges(db: sqlite3.Connection, ctf_id: int):
     ).fetchall()
 
 
+def list_challenge_files(db: sqlite3.Connection, challenge_id: int):
+    return db.execute(
+        """
+        SELECT *
+        FROM challenge_files
+        WHERE challenge_id = ?
+        ORDER BY display_name, id
+        """,
+        (challenge_id,),
+    ).fetchall()
+
+
 def upsert_challenges(
     db: sqlite3.Connection,
     *,
@@ -308,4 +323,99 @@ def upsert_challenges(
                 now,
             ),
         )
+        challenge_row = db.execute(
+            """
+            SELECT id
+            FROM challenges
+            WHERE ctf_event_id = ? AND remote_id = ?
+            """,
+            (ctf_id, str(challenge["remote_id"])),
+        ).fetchone()
+        if challenge_row is None:
+            continue
+        _replace_challenge_files(
+            db,
+            challenge_id=int(challenge_row["id"]),
+            files=challenge.get("files") or [],
+        )
     db.commit()
+
+
+def _replace_challenge_files(
+    db: sqlite3.Connection,
+    *,
+    challenge_id: int,
+    files: object,
+) -> None:
+    db.execute("DELETE FROM challenge_files WHERE challenge_id = ?", (challenge_id,))
+    if not isinstance(files, list):
+        return
+
+    used_names: set[str] = set()
+    now = utc_now()
+    for index, file_info in enumerate(files, start=1):
+        if not isinstance(file_info, dict):
+            continue
+        remote_ref = str(file_info.get("remote_ref") or "").strip()
+        download_url = str(file_info.get("download_url") or "").strip()
+        if not remote_ref or not download_url:
+            continue
+        display_name = str(file_info.get("display_name") or "").strip() or _filename_from_url(
+            download_url,
+            fallback=f"challenge-file-{index}",
+        )
+        storage_name = _unique_storage_name(
+            _safe_storage_name(display_name or f"challenge-file-{index}"),
+            used_names,
+        )
+        metadata = file_info.get("metadata")
+        db.execute(
+            """
+            INSERT INTO challenge_files (
+                challenge_id,
+                remote_ref,
+                download_url,
+                display_name,
+                storage_name,
+                metadata_json,
+                created_at,
+                updated_at
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                challenge_id,
+                remote_ref,
+                download_url,
+                display_name,
+                storage_name,
+                json.dumps(metadata if isinstance(metadata, dict) else {}, sort_keys=True),
+                now,
+                now,
+            ),
+        )
+
+
+def _filename_from_url(value: str, *, fallback: str) -> str:
+    parsed = urlparse(value)
+    name = unquote(parsed.path.rsplit("/", 1)[-1]).strip()
+    return name or fallback
+
+
+def _safe_storage_name(value: str) -> str:
+    name = value.replace("\\", "/").rsplit("/", 1)[-1]
+    name = re.sub(r"[^A-Za-z0-9._-]+", "-", name).strip(".-")
+    return name or "challenge-file"
+
+
+def _unique_storage_name(value: str, used_names: set[str]) -> str:
+    path = Path(value)
+    stem = path.stem or "challenge-file"
+    suffix = "".join(path.suffixes)
+    candidate = value
+    counter = 2
+    while candidate in used_names:
+        candidate = f"{stem}-{counter}{suffix}"
+        counter += 1
+    used_names.add(candidate)
+    return candidate

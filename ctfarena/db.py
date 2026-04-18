@@ -11,14 +11,18 @@ from ctfarena.utils import utc_now
 DELETED_MODEL_SLUGS_SETTING = "deleted_model_slugs"
 
 
+def connect_db(path: str | Path) -> sqlite3.Connection:
+    connection = sqlite3.connect(path)
+    connection.row_factory = sqlite3.Row
+    connection.execute("PRAGMA foreign_keys = ON")
+    connection.execute("PRAGMA journal_mode = WAL")
+    connection.execute("PRAGMA busy_timeout = 10000")
+    return connection
+
+
 def get_db() -> sqlite3.Connection:
     if "db" not in g:
-        connection = sqlite3.connect(current_app.config["DATABASE_PATH"])
-        connection.row_factory = sqlite3.Row
-        connection.execute("PRAGMA foreign_keys = ON")
-        connection.execute("PRAGMA journal_mode = WAL")
-        connection.execute("PRAGMA busy_timeout = 10000")
-        g.db = connection
+        g.db = connect_db(current_app.config["DATABASE_PATH"])
     return g.db
 
 
