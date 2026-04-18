@@ -958,6 +958,28 @@ h4 {
   gap: 8px;
 }
 
+.rerun-btn {
+  margin-left: auto;
+  padding: 0.25rem 0.7rem;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--text-muted, #666);
+  font-size: 0.78rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+.rerun-btn:hover:not(:disabled) {
+  background: rgba(255, 159, 10, 0.18);
+  color: var(--text);
+  border-color: rgba(255, 159, 10, 0.5);
+}
+.rerun-btn:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+
 .terminal-model .dot {
   width: 0.72rem;
   height: 0.72rem;

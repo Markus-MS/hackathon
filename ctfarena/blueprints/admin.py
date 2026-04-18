@@ -149,6 +149,8 @@ def update_model(model_id: int):
     rate_key = request.form.get("rate_key", "").strip() or f"{provider}:{model_name}"
     temperature = request.form.get("temperature", type=float)
     provider_api_key = request.form.get("provider_api_key", "").strip()
+    if provider_api_key == "__KEEP__":
+        provider_api_key = ""
     if provider_api_key and not runtime_settings.set_provider_api_key(provider, provider_api_key):
         capture_admin_action("model.update", status="failed", payload={"model_id": model_id, "reason": "unsupported_provider"})
         flash("Unsupported provider for API key storage.", "error")
@@ -262,6 +264,8 @@ def create_model():
     slug_root = slugify(request.form.get("slug", "").strip() or display_name or model_name)
     rate_key = request.form.get("rate_key", "").strip() or f"{provider}:{model_name}"
     provider_api_key = request.form.get("provider_api_key", "").strip()
+    if provider_api_key == "__KEEP__":
+        provider_api_key = ""
 
     if not display_name or not provider or not model_name:
         flash("Display name, provider, and model name are required.", "error")
@@ -460,6 +464,11 @@ def upsert_account(ctf_id: int, model_id: int):
     team_name = request.form.get("team_name", "").strip()
     notes = request.form.get("notes", "").strip()
 
+    if password == "__KEEP__":
+        password = ""
+    if api_token == "__KEEP__":
+        api_token = ""
+
     if existing is not None:
         username = username or existing["username"]
         password = password or existing["password"]
@@ -490,6 +499,21 @@ def upsert_account(ctf_id: int, model_id: int):
     capture_admin_action("ctf.account.upsert", status="success", payload={"ctf_id": ctf_id, "model_id": model_id})
     flash("CTF account saved.", "success")
     return redirect(url_for("admin.dashboard"))
+
+
+@bp.post("/challenge-runs/<int:challenge_run_id>/rerun")
+@admin_required
+def rerun_challenge_run(challenge_run_id: int):
+    try:
+        manager = current_app.extensions["competition_manager"]
+        manager.rerun_challenge_run(challenge_run_id)
+    except ValueError as exc:
+        return jsonify({"error": str(exc)}), 404
+    except Exception as exc:
+        capture_exception(exc, tags={"action": "challenge_run.rerun", "challenge_run_id": challenge_run_id})
+        return jsonify({"error": str(exc)}), 500
+    capture_admin_action("challenge_run.rerun", status="success", payload={"challenge_run_id": challenge_run_id})
+    return jsonify({"ok": True})
 
 
 @bp.post("/ctfs/<int:ctf_id>/start")

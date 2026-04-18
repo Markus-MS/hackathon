@@ -18,6 +18,7 @@
   <script>
     const challengeApiUrl = {{ challenge_api_url|tojson }};
     const detailsApiUrl = {{ details_api_url|tojson }};
+    const rerunBaseUrl = {{ url_for('admin.rerun_challenge_run', challenge_run_id=0)|tojson }};
 
     function setText(id, value) {
       const el = document.getElementById(id);
@@ -70,6 +71,26 @@
       }
     }
 
+    async function rerunChallenge(challengeRunId, btn) {
+      const url = rerunBaseUrl.replace("/0/", `/${challengeRunId}/`);
+      btn.disabled = true;
+      btn.textContent = "Queuing…";
+      try {
+        const resp = await fetch(url, { method: "POST" });
+        if (!resp.ok) {
+          const body = await resp.json().catch(() => ({}));
+          btn.textContent = body.error || "Error";
+          btn.disabled = false;
+          return;
+        }
+        btn.textContent = "Queued";
+        setTimeout(() => loadChallengeDetails().catch(() => {}), 800);
+      } catch (e) {
+        btn.textContent = "Failed";
+        btn.disabled = false;
+      }
+    }
+
     function renderChallengeTerminals(data) {
       const grid = document.getElementById("terminal-grid");
       grid.replaceChildren();
@@ -101,6 +122,15 @@
         status.className = `pill pill-${row.status}`;
         status.textContent = String(row.label || row.status).replaceAll("_", " ");
         head.append(model, status);
+
+        if (row.challenge_run_id && row.status !== "solved") {
+          const rerunBtn = document.createElement("button");
+          rerunBtn.className = "rerun-btn";
+          rerunBtn.textContent = "Rerun";
+          rerunBtn.title = `Rerun challenge for ${row.model}`;
+          rerunBtn.addEventListener("click", () => rerunChallenge(row.challenge_run_id, rerunBtn));
+          head.appendChild(rerunBtn);
+        }
 
         const meta = document.createElement("div");
         meta.className = "terminal-meta";

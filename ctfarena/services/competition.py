@@ -2131,6 +2131,97 @@ class CompetitionManager:
         else:
             self.backend = DockerSolverBackend()
 
+    def rerun_challenge_run(self, challenge_run_id: int) -> None:
+        """Reset a single challenge_run to queued and re-execute it asynchronously."""
+        with self.app.app_context():
+            db = get_db()
+            row = db.execute(
+                """
+                SELECT cr.id AS challenge_run_id,
+                       cr.competition_run_id,
+                       cr.challenge_id,
+                       comp.ctf_event_id,
+                       comp.model_id,
+                       comp.debug_mode
+                FROM challenge_runs cr
+                JOIN competition_runs comp ON comp.id = cr.competition_run_id
+                WHERE cr.id = ?
+                """,
+                (challenge_run_id,),
+            ).fetchone()
+            if row is None:
+                raise ValueError(f"challenge_run {challenge_run_id} not found")
+
+            competition_run_id = int(row["competition_run_id"])
+            challenge_id = int(row["challenge_id"])
+            ctf_id = int(row["ctf_event_id"])
+
+            ctf = ctf_service.get_ctf(db, ctf_id)
+            challenge = db.execute(
+                "SELECT * FROM challenges WHERE id = ?", (challenge_id,)
+            ).fetchone()
+            competition_run = get_competition_run(db, competition_run_id)
+            model = ctf_service.get_model(db, int(row["model_id"]))
+            account = ctf_service.get_ctf_account(db, ctf_id, int(row["model_id"]))
+
+            if ctf is None or challenge is None or competition_run is None or model is None:
+                raise ValueError(f"Missing data for challenge_run {challenge_run_id}")
+
+            now = utc_now()
+            db.execute(
+                """
+                UPDATE challenge_runs
+                SET status = 'queued',
+                    attempt_index = 0,
+                    started_at = NULL,
+                    ended_at = NULL,
+                    input_tokens = 0,
+                    output_tokens = 0,
+                    reasoning_tokens = 0,
+                    cached_input_tokens = 0,
+                    cost_usd = 0,
+                    flag_attempts = 0,
+                    turns = 0,
+                    solve_time_seconds = NULL,
+                    transcript_excerpt = '',
+                    error_message = '',
+                    updated_at = ?
+                WHERE id = ?
+                """,
+                (now, challenge_run_id),
+            )
+            db.commit()
+            logger.info(
+                "[competition] Queued rerun for challenge_run_id=%d challenge=%r model=%s",
+                challenge_run_id,
+                challenge["name"],
+                model["display_name"],
+            )
+
+        # Re-read solver tool at rerun time
+        with self.app.app_context():
+            tool = runtime_settings.get_all().get("solver_tool", "docker")
+        if tool == "opencode":
+            self.backend = OpencodeSolverBackend()
+        else:
+            self.backend = DockerSolverBackend()
+
+        stop_event = threading.Event()
+        first_solve_event = threading.Event()
+
+        self.executor.submit(
+            self._run_challenge,
+            competition_run_id,
+            challenge,
+            challenge_run_id,
+            ctf,
+            model,
+            account,
+            competition_run,
+            stop_event,
+            first_solve_event,
+        )
+
     def resume_incomplete_runs(self, *, synchronous: bool = False) -> list[int]:
         with self.app.app_context():
             db = get_db()

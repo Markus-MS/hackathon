@@ -102,23 +102,23 @@
     <form class="stack-form grid-form" method="post" action="{{ url_for('admin.update_settings') }}">
       <label>
         <span>ChatGPT / OpenAI API Key{% if masked_settings.get('openai_api_key') %} · {{ masked_settings['openai_api_key'] }}{% endif %}</span>
-        <input type="password" name="openai_api_key" placeholder="Leave blank to keep existing">
+        <input type="password" name="openai_api_key" value="{{ '__KEEP__' if masked_settings.get('openai_api_key') else '' }}" placeholder="Paste API key">
       </label>
       <label>
         <span>Anthropic API Key{% if masked_settings.get('anthropic_api_key') %} · {{ masked_settings['anthropic_api_key'] }}{% endif %}</span>
-        <input type="password" name="anthropic_api_key" placeholder="Leave blank to keep existing">
+        <input type="password" name="anthropic_api_key" value="{{ '__KEEP__' if masked_settings.get('anthropic_api_key') else '' }}" placeholder="Paste API key">
       </label>
       <label>
         <span>Google API Key{% if masked_settings.get('google_api_key') %} · {{ masked_settings['google_api_key'] }}{% endif %}</span>
-        <input type="password" name="google_api_key" placeholder="Leave blank to keep existing">
+        <input type="password" name="google_api_key" value="{{ '__KEEP__' if masked_settings.get('google_api_key') else '' }}" placeholder="Paste API key">
       </label>
       <label>
         <span>DeepSeek API Key{% if masked_settings.get('deepseek_api_key') %} · {{ masked_settings['deepseek_api_key'] }}{% endif %}</span>
-        <input type="password" name="deepseek_api_key" placeholder="Leave blank to keep existing">
+        <input type="password" name="deepseek_api_key" value="{{ '__KEEP__' if masked_settings.get('deepseek_api_key') else '' }}" placeholder="Paste API key">
       </label>
       <label>
         <span>OpenRouter API Key{% if masked_settings.get('openrouter_api_key') %} · {{ masked_settings['openrouter_api_key'] }}{% endif %}</span>
-        <input type="password" name="openrouter_api_key" placeholder="Leave blank to keep existing">
+        <input type="password" name="openrouter_api_key" value="{{ '__KEEP__' if masked_settings.get('openrouter_api_key') else '' }}" placeholder="Paste API key">
       </label>
       <label>
         <span>Solver Tool</span>
@@ -193,7 +193,7 @@
         </label>
         <label>
           <span>Browser DSN{% if masked_settings.get('sentry_browser_dsn') %} · {{ masked_settings['sentry_browser_dsn'] }}{% endif %}</span>
-          <input type="password" name="sentry_browser_dsn" placeholder="Leave blank to keep existing">
+          <input type="password" name="sentry_browser_dsn" value="{{ '__KEEP__' if masked_settings.get('sentry_browser_dsn') else '' }}" placeholder="Paste DSN">
         </label>
         <label>
           <span>Trace Sample Rate</span>
@@ -323,8 +323,8 @@
             <input type="text" name="model_name" value="{{ model['model_name'] }}" list="model-name-options" required>
           </label>
           <label>
-            <span>Provider API Key</span>
-            <input type="password" name="provider_api_key" placeholder="Leave blank to keep existing provider key">
+            <span>Provider API Key{% if masked_settings.get(model['provider'] + '_api_key') %} · {{ masked_settings[model['provider'] + '_api_key'] }}{% endif %}</span>
+            <input type="password" name="provider_api_key" value="{{ '__KEEP__' if masked_settings.get(model['provider'] + '_api_key') else '' }}" placeholder="Paste API key">
           </label>
           <label>
             <span>Rate Key</span>
@@ -411,16 +411,16 @@
             <form class="stack-form account-form" method="post" action="{{ url_for('admin.upsert_account', ctf_id=ctf['id'], model_id=model['id']) }}">
               <h4>{{ model["display_name"] }}</h4>
               <label>
-                <span>CTFd API Token{% if account.value and account.value['api_token'] %} · configured{% endif %}</span>
-                <input type="password" name="api_token" placeholder="Paste a CTFd token for this model">
+                <span>CTFd API Token</span>
+                <input type="password" name="api_token" value="{{ '__KEEP__' if account.value and account.value['api_token'] else '' }}" placeholder="Paste a CTFd token for this model">
               </label>
               <label>
                 <span>Username</span>
                 <input type="text" name="username" value="{{ account.value['username'] if account.value else '' }}" placeholder="Optional account note">
               </label>
               <label>
-                <span>Password{% if account.value and account.value['password'] %} · configured{% endif %}</span>
-                <input type="password" name="password" placeholder="Leave blank to keep existing">
+                <span>Password</span>
+                <input type="password" name="password" value="{{ '__KEEP__' if account.value and account.value['password'] else '' }}" placeholder="Leave blank to keep existing">
               </label>
               <label>
                 <span>Team Name</span>
