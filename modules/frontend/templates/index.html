@@ -137,7 +137,7 @@
 
     h1 {
       margin: 0;
-      font-size: clamp(2rem, 4vw, 3.6rem);
+      font-size: clamp(1.4rem, 2.5vw, 2.1rem);
       line-height: 0.96;
       letter-spacing: -0.05em;
       max-width: 14ch;
@@ -171,7 +171,6 @@
     }
 
     .summary-tile span,
-    .model-label small,
     .score-line,
     .archive-card small {
       color: var(--muted);
@@ -187,6 +186,11 @@
     .leaderboard-section,
     .archive-section {
       margin: 6px 14px 10px;
+    }
+
+    .leaderboard-section,
+    .archive-section {
+      margin-top: 14px;
     }
 
     .matrix-card {
@@ -254,22 +258,7 @@
     }
 
     .model-label {
-      gap: 10px;
-    }
-
-    .model-label small {
-      display: block;
-      margin-top: 2px;
-      font-size: 0.78rem;
-      font-weight: 500;
-    }
-
-    .model-swatch {
-      width: 10px;
-      height: 28px;
-      border-radius: 999px;
-      background: var(--gray);
-      flex: 0 0 auto;
+      gap: 0;
     }
 
     .status-dot {
@@ -576,16 +565,9 @@
 
         const labelWrap = document.createElement("span");
         labelWrap.className = "model-label";
-        const swatch = document.createElement("span");
-        swatch.className = "model-swatch";
-        swatch.style.background = model.color || "var(--gray)";
-        const textWrap = document.createElement("span");
         const name = document.createElement("strong");
         name.textContent = model.name;
-        const meta = document.createElement("small");
-        meta.textContent = model.slug || "";
-        textWrap.append(name, meta);
-        labelWrap.append(swatch, textWrap);
+        labelWrap.append(name);
         label.appendChild(labelWrap);
         row.appendChild(label);
 
