@@ -130,6 +130,86 @@ DEMO_MODELS = [
 ]
 
 
+DEMO_LEADERBOARD = [
+    {
+        "rank": 1,
+        "model": "gpt 5.4",
+        "provider": "OpenAI",
+        "score": 1650,
+        "solves": 5,
+        "attempted": 10,
+        "total_usd": 1.2842,
+    },
+    {
+        "rank": 2,
+        "model": "gpt 4.1",
+        "provider": "OpenAI",
+        "score": 1400,
+        "solves": 4,
+        "attempted": 10,
+        "total_usd": 0.8739,
+    },
+    {
+        "rank": 3,
+        "model": "gpt 5.3",
+        "provider": "OpenAI",
+        "score": 1150,
+        "solves": 4,
+        "attempted": 10,
+        "total_usd": 1.0465,
+    },
+    {
+        "rank": 4,
+        "model": "gpt 4o",
+        "provider": "OpenAI",
+        "score": 900,
+        "solves": 4,
+        "attempted": 10,
+        "total_usd": 0.5127,
+    },
+    {
+        "rank": 5,
+        "model": "o4-mini",
+        "provider": "OpenAI",
+        "score": 850,
+        "solves": 4,
+        "attempted": 10,
+        "total_usd": 0.2214,
+    },
+]
+
+
+DEMO_RECENT_CTFS = [
+    {
+        "id": 101,
+        "title": "AlpineCTF",
+        "status": "completed",
+        "challenge_count": 12,
+        "run_count": 48,
+        "completed_runs": 42,
+        "url": "#archive-alpine",
+    },
+    {
+        "id": 102,
+        "title": "FrostbyteCTF",
+        "status": "completed",
+        "challenge_count": 9,
+        "run_count": 35,
+        "completed_runs": 31,
+        "url": "#archive-frostbyte",
+    },
+    {
+        "id": 103,
+        "title": "SummitCTF",
+        "status": "completed",
+        "challenge_count": 15,
+        "run_count": 62,
+        "completed_runs": 55,
+        "url": "#archive-summit",
+    },
+]
+
+
 @frontend_bp.get("/")
 def index():
     return render_template(
@@ -312,12 +392,12 @@ def build_demo_dashboard_payload(recent_ctfs: list[dict[str, object]]) -> dict[s
         },
         "challenges": DEMO_CHALLENGES,
         "models": models,
-        "leaderboard": [],
+        "leaderboard": DEMO_LEADERBOARD,
         "matrix": {
             "solved_cells": solved_cells,
             "total_cells": len(DEMO_CHALLENGES) * len(models),
         },
-        "recent_ctfs": recent_ctfs,
+        "recent_ctfs": recent_ctfs or DEMO_RECENT_CTFS,
         "admin_url": safe_url_for("admin.dashboard"),
     }
 

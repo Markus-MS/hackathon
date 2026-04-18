@@ -40,12 +40,12 @@
             <strong id="stat-models">0</strong>
           </div>
           <div class="summary-tile">
-            <span>Solved Cells</span>
-            <strong id="stat-solved">0/0</strong>
+            <span>Solved Challenges</span>
+            <div class="mini-chart" aria-hidden="true"><canvas id="chart-solved"></canvas></div>
           </div>
           <div class="summary-tile">
             <span>Runs Active</span>
-            <strong id="stat-running">0</strong>
+            <div class="mini-chart" aria-hidden="true"><canvas id="chart-running"></canvas></div>
           </div>
         </div>
       </header>
@@ -66,7 +66,14 @@
       </section>
 
       <div class="legend">
-        <span class="legend-item"><span class="status-dot status-solved"></span> Solved</span>
+        <span class="legend-item">
+          <span class="status-flag">
+            <svg viewBox="0 0 16 16" aria-hidden="true">
+              <path d="M3 14.5a.75.75 0 0 1-.75-.75V2.25a.75.75 0 0 1 1.5 0v.38c1.2-.5 2.21-.36 3.18-.08.36.1.71.23 1.08.35 1.16.4 2.5.85 4.74-.19A.75.75 0 0 1 13.8 3.4v6.14a.75.75 0 0 1-.43.68c-2.74 1.29-4.48.7-5.85.23-.35-.12-.67-.23-1-.32-.83-.24-1.6-.3-2.77.34v3.28a.75.75 0 0 1-.75.75Z"/>
+            </svg>
+          </span>
+          Solved
+        </span>
         <span class="legend-item"><span class="status-dot status-trying"></span> Trying</span>
         <span class="legend-item"><span class="status-dot status-idle"></span> Idle</span>
         <span class="legend-item"><span class="status-dot status-error"></span> Error</span>
@@ -93,11 +100,16 @@
       </section>
     </section>
   </main>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.8/dist/chart.umd.min.js"></script>
   <script>
     const dashboardApiUrl = {{ dashboard_api_url|tojson }};
+    const summaryCharts = new Map();
 
     function setText(id, value) {
-      document.getElementById(id).textContent = value;
+      const element = document.getElementById(id);
+      if (element) {
+        element.textContent = value;
+      }
     }
 
     function appendText(parent, text) {
@@ -106,6 +118,87 @@
 
     function money(value) {
       return `$${Number(value || 0).toFixed(4)}`;
+    }
+
+    function modelLogoText(modelName) {
+      const normalized = modelName.toLowerCase();
+      if (normalized.includes("5.4")) return "5.4";
+      if (normalized.includes("5.3")) return "5.3";
+      if (normalized.includes("4.1")) return "4.1";
+      if (normalized.includes("4o")) return "4o";
+      if (normalized.includes("o4")) return "o4";
+      return "AI";
+    }
+
+    function createSolvedFlag(title) {
+      const icon = document.createElement("span");
+      icon.className = "status-flag";
+      icon.title = title;
+      icon.innerHTML = `
+        <svg viewBox="0 0 16 16" aria-hidden="true">
+          <path d="M3 14.5a.75.75 0 0 1-.75-.75V2.25a.75.75 0 0 1 1.5 0v.38c1.2-.5 2.21-.36 3.18-.08.36.1.71.23 1.08.35 1.16.4 2.5.85 4.74-.19A.75.75 0 0 1 13.8 3.4v6.14a.75.75 0 0 1-.43.68c-2.74 1.29-4.48.7-5.85.23-.35-.12-.67-.23-1-.32-.83-.24-1.6-.3-2.77.34v3.28a.75.75 0 0 1-.75.75Z"/>
+        </svg>
+      `;
+      return icon;
+    }
+
+    function renderPieChart(id, labels, values, colors) {
+      const canvas = document.getElementById(id);
+      if (!window.Chart) {
+        canvas.replaceWith(document.createTextNode(values.reduce((sum, value) => sum + value, 0)));
+        return;
+      }
+
+      const existing = summaryCharts.get(id);
+      if (existing) {
+        existing.destroy();
+      }
+
+      const chart = new window.Chart(canvas, {
+        type: "pie",
+        data: {
+          labels,
+          datasets: [
+            {
+              data: values,
+              backgroundColor: colors,
+              borderColor: "#ffffff",
+              borderWidth: 2,
+            },
+          ],
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          animation: false,
+          plugins: {
+            legend: {
+              display: true,
+              position: "bottom",
+              labels: {
+                boxWidth: 10,
+                boxHeight: 10,
+                color: "#6d7480",
+                font: {
+                  family: "Inter",
+                  size: 11,
+                  weight: "600",
+                },
+                padding: 10,
+              },
+            },
+            tooltip: {
+              enabled: true,
+              callbacks: {
+                label(context) {
+                  return `${context.label}: ${context.parsed}`;
+                },
+              },
+            },
+          },
+        },
+      });
+      summaryCharts.set(id, chart);
     }
 
     function renderHeader(data) {
@@ -117,18 +210,34 @@
         setText("ctf-title", "https://ctfarena.live/ is waiting.");
         setText("ctf-copy", "Create a week in Admin, sync challenges from CTFd, attach model accounts, and start the run.");
       } else {
+        const ctfUrl = data.ctf.ctfd_url || "https://glacierctf.example";
         setText("eyebrow", data.ctf.status);
         setText("ctf-title", data.ctf.title);
         setText(
           "ctf-copy",
-          `${data.ctf.ctfd_url} · budget ${Number(data.ctf.budget_usd).toFixed(2)} USD per challenge · sandbox ${data.ctf.sandbox_digest.slice(-16)}`
+          `${ctfUrl} · budget ${Number(data.ctf.budget_usd).toFixed(2)} USD per challenge · sandbox ${data.ctf.sandbox_digest.slice(-16)}`
         );
       }
 
       setText("stat-challenges", data.overview.challenge_count);
       setText("stat-models", data.overview.model_count);
-      setText("stat-solved", `${data.matrix.solved_cells}/${data.matrix.total_cells}`);
-      setText("stat-running", data.overview.running_count);
+
+      const solvedCells = Number(data.matrix.solved_cells || 0);
+      const totalCells = Number(data.matrix.total_cells || 0);
+      const unsolvedCells = Math.max(totalCells - solvedCells, 0);
+      renderPieChart("chart-solved", ["Solved", "Remaining"], [solvedCells, unsolvedCells], ["#34c759", "#cfd4dc"]);
+
+      const activeModelCounts = data.models.map((model) => ({
+        label: model.name,
+        value: model.cells.filter((cell) => cell.kind === "trying").length,
+        color: model.color || "#cfd4dc",
+      })).filter((item) => item.value > 0);
+      renderPieChart(
+        "chart-running",
+        activeModelCounts.map((item) => item.label),
+        activeModelCounts.map((item) => item.value),
+        activeModelCounts.map((item) => item.color),
+      );
     }
 
     function renderMatrix(data) {
@@ -166,18 +275,28 @@
 
         const labelWrap = document.createElement("span");
         labelWrap.className = "model-label";
+        const logo = document.createElement("span");
+        logo.className = "model-logo";
+        logo.textContent = modelLogoText(model.name);
+        logo.style.borderColor = model.color || "rgba(17, 19, 24, 0.08)";
+        logo.style.background = `${model.color || "#cfd4dc"}1f`;
         const name = document.createElement("strong");
         name.textContent = model.name;
-        labelWrap.append(name);
+        labelWrap.append(logo, name);
         label.appendChild(labelWrap);
         row.appendChild(label);
 
         for (const cellData of model.cells) {
           const cell = document.createElement("td");
-          const dot = document.createElement("span");
-          dot.className = `status-dot status-${cellData.kind}`;
-          dot.title = `${cellData.challenge}: ${cellData.label} · ${money(cellData.cost_usd)}`;
-          cell.appendChild(dot);
+          const title = `${cellData.challenge}: ${cellData.label} · ${money(cellData.cost_usd)}`;
+          if (cellData.kind === "solved") {
+            cell.appendChild(createSolvedFlag(title));
+          } else {
+            const dot = document.createElement("span");
+            dot.className = `status-dot status-${cellData.kind}`;
+            dot.title = title;
+            cell.appendChild(dot);
+          }
           row.appendChild(cell);
         }
 
