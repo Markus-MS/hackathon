@@ -13,6 +13,12 @@ from ctfarena.utils import slugify, utc_now
 
 bp = Blueprint("admin", __name__, url_prefix="/admin")
 PROVIDER_OPTIONS = ("openai", "anthropic", "google", "deepseek", "openrouter")
+SETTINGS_TABS = ("runtime", "providers", "agents", "observability")
+
+
+def _settings_tab(value: str | None) -> str:
+    tab = (value or "").strip().lower()
+    return tab if tab in SETTINGS_TABS else SETTINGS_TABS[0]
 
 
 @bp.route("/login", methods=["GET", "POST"])
@@ -61,6 +67,7 @@ def dashboard():
     }
     rate_keys = sorted(pricing.get_rate_table())
     model_name_options = sorted({key.split(":", 1)[1] for key in rate_keys})
+    active_settings_tab = _settings_tab(request.args.get("settings_tab"))
     return render_template(
         "frontend_admin/dashboard.html",
         ctfs=ctfs,
@@ -73,6 +80,7 @@ def dashboard():
         model_name_options=model_name_options,
         rate_key_options=rate_keys,
         active_ctf=ctf_service.get_active_ctf(db),
+        active_settings_tab=active_settings_tab,
         admin_logged_in=is_admin_authenticated(),
     )
 
@@ -80,6 +88,7 @@ def dashboard():
 @bp.post("/settings")
 @admin_required
 def update_settings():
+    active_settings_tab = _settings_tab(request.form.get("active_settings_tab"))
     solver_tool = request.form.get("solver_tool", "docker").strip()
     if solver_tool not in ("docker", "opencode"):
         solver_tool = "docker"
@@ -142,7 +151,7 @@ def update_settings():
         },
     )
     flash("Runtime settings saved.", "success")
-    return redirect(url_for("admin.dashboard"))
+    return redirect(url_for("admin.dashboard", settings_tab=active_settings_tab))
 
 
 @bp.post("/models/<int:model_id>")

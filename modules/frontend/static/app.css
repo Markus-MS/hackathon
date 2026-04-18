@@ -670,6 +670,67 @@ h4 {
   padding: 16px;
 }
 
+.settings-subtabs {
+  display: grid;
+  gap: 1rem;
+}
+
+.settings-subtab-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.65rem;
+}
+
+.settings-subtab-button {
+  padding: 0.65rem 1rem;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.72);
+  color: var(--muted);
+  font-size: 0.88rem;
+  font-weight: 700;
+}
+
+.settings-subtab-button.is-active {
+  background: white;
+  color: var(--text);
+  border-color: rgba(11, 114, 133, 0.26);
+  box-shadow: 0 0 0 1px rgba(11, 114, 133, 0.08);
+}
+
+.settings-subtab-panel {
+  display: grid;
+  gap: 1rem;
+  padding: 1rem;
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.62);
+}
+
+.settings-subtab-copy {
+  display: grid;
+  gap: 0.3rem;
+}
+
+.settings-subtab-copy p {
+  margin: 0;
+  color: var(--muted);
+}
+
+.settings-fieldset {
+  margin: 0;
+  padding: 1rem;
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  display: grid;
+  gap: 1rem;
+}
+
+.settings-fieldset legend {
+  padding: 0 0.45rem;
+  font-weight: 700;
+}
+
 .hero-meta {
   margin: 0;
   display: grid;
