@@ -10,8 +10,8 @@
   <style>
     :root {
       color-scheme: light;
-      --bg: #fafbfe;
-      --bg-accent: #f1f4f9;
+      --bg: #fdfdff;
+      --bg-accent: #f7f9fc;
       --panel: rgba(255, 255, 255, 0.84);
       --panel-strong: rgba(255, 255, 255, 0.94);
       --text: #111318;
@@ -240,6 +240,15 @@
       border-bottom: none;
     }
 
+    tbody tr:nth-child(even) th,
+    tbody tr:nth-child(even) td {
+      background: rgba(17, 19, 24, 0.035);
+    }
+
+    tbody tr:nth-child(even) th {
+      background: rgba(17, 19, 24, 0.045);
+    }
+
     td {
       text-align: center;
     }
@@ -460,7 +469,7 @@
           </thead>
           <tbody id="matrix-body">
             <tr>
-              <td colspan="11" class="message">Loading matrix...</td>
+              <td colspan="11" class="message">Loading challenges...</td>
             </tr>
           </tbody>
         </table>

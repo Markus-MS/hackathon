@@ -10,10 +10,11 @@ from flagfarm.config import Config
 from flagfarm.db import init_app as init_db
 from flagfarm.services.competition import CompetitionManager
 from flagfarm.telemetry import init_sentry
-from modules.frontend import frontend_bp
 
 
 def create_app(config_object: type[Config] = Config) -> Flask:
+    from modules.frontend import frontend_bp
+
     app = Flask(__name__, instance_relative_config=False)
     app.config.from_object(config_object)
 
