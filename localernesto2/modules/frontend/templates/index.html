@@ -1,0 +1,567 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>{{ app_name }}</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@600;700&family=PT+Mono&family=Roboto:wght@400;500;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="{{ url_for('frontend.static', filename='app.css') }}">
+  {% if sentry_frontend_config.enabled %}
+    <script src="https://browser.sentry-cdn.com/8.33.0/bundle.tracing.replay.min.js" crossorigin="anonymous"></script>
+    <script>
+      window.__ctfarenaSentryConfig = {{ sentry_frontend_config|tojson }};
+      (() => {
+        const config = window.__ctfarenaSentryConfig;
+        if (!config || !config.enabled || !window.Sentry) {
+          return;
+        }
+
+        const scrubText = (value) => String(value || "")
+          .replace(/flag\{.*?\}/gi, "[redacted-flag]")
+          .replace(/sk-[A-Za-z0-9_-]+/g, "[redacted-token]")
+          .replace(/Bearer\s+[A-Za-z0-9._-]+/gi, "Bearer [redacted-token]");
+
+        window.Sentry.init({
+          dsn: config.dsn,
+          environment: config.environment,
+          release: config.release,
+          integrations: [
+            window.Sentry.browserTracingIntegration(),
+            window.Sentry.replayIntegration(),
+          ],
+          tracesSampleRate: config.debug_mode_default ? 1.0 : config.traces_sample_rate,
+          replaysSessionSampleRate: config.replays_session_sample_rate,
+          replaysOnErrorSampleRate: config.replays_on_error_sample_rate,
+          tracePropagationTargets: [window.location.origin],
+          beforeSend(event) {
+            if (event.request && event.request.url) {
+              event.request.url = scrubText(event.request.url);
+            }
+            if (event.message) {
+              event.message = scrubText(event.message);
+            }
+            if (event.tags) {
+              event.tags.component = "frontend";
+            }
+            return event;
+          },
+        });
+
+        window.Sentry.setTag("component", "frontend");
+        window.Sentry.setTag("page", "leaderboard");
+        window.ctfarenaSentry = {
+          breadcrumb(category, message, data = {}) {
+            window.Sentry.addBreadcrumb({ category, message, data });
+          },
+          capture(error, extra = {}) {
+            window.Sentry.captureException(error, { extra });
+          },
+          message(message, level = "info", extra = {}) {
+            window.Sentry.captureMessage(scrubText(message), { level, extra });
+          },
+          setTag(key, value) {
+            window.Sentry.setTag(key, value);
+          },
+        };
+      })();
+    </script>
+  {% endif %}
+</head>
+<body>
+  <main>
+    <section class="shell">
+      <nav class="nav">
+        <a class="brand" href="{{ url_for('frontend.index') }}">
+          <span class="brand-mark"></span>
+          <span>{{ app_name }}</span>
+        </a>
+        <div class="nav-title" id="ctf-title">Local Test CTF</div>
+        <div class="nav-spacer" aria-hidden="true"></div>
+      </nav>
+
+      <header class="hero">
+        <div class="summary-grid">
+          <div class="summary-tile">
+            <span>Challenge Categories</span>
+            <div class="mini-chart" aria-hidden="true"><canvas id="chart-categories"></canvas></div>
+          </div>
+          <div class="summary-tile">
+            <span>Challenge Difficulty</span>
+            <div class="mini-chart" aria-hidden="true"><canvas id="chart-difficulty"></canvas></div>
+          </div>
+          <div class="summary-tile">
+            <span>Solved Challenges</span>
+            <div class="mini-chart" aria-hidden="true"><canvas id="chart-solved"></canvas></div>
+          </div>
+          <div class="summary-tile">
+            <span>Runs Active</span>
+            <div class="mini-chart" aria-hidden="true"><canvas id="chart-running"></canvas></div>
+          </div>
+        </div>
+      </header>
+
+      <section class="matrix-card">
+        <table>
+          <thead>
+            <tr id="matrix-head">
+              <th>Model</th>
+            </tr>
+          </thead>
+          <tbody id="matrix-body">
+            <tr>
+              <td colspan="11" class="message">Loading challenges...</td>
+            </tr>
+          </tbody>
+        </table>
+      </section>
+
+      <div class="legend">
+        <span class="legend-item">
+          <span class="status-flag">
+            <svg viewBox="0 0 16 16" aria-hidden="true">
+              <path d="M3 14.5a.75.75 0 0 1-.75-.75V2.25a.75.75 0 0 1 1.5 0v.38c1.2-.5 2.21-.36 3.18-.08.36.1.71.23 1.08.35 1.16.4 2.5.85 4.74-.19A.75.75 0 0 1 13.8 3.4v6.14a.75.75 0 0 1-.43.68c-2.74 1.29-4.48.7-5.85.23-.35-.12-.67-.23-1-.32-.83-.24-1.6-.3-2.77.34v3.28a.75.75 0 0 1-.75.75Z"/>
+            </svg>
+          </span>
+          Solved
+        </span>
+        <span class="legend-item"><span class="status-dot status-trying"></span> Trying</span>
+        <span class="legend-item"><span class="status-dot status-idle"></span> Idle</span>
+        <span class="legend-item"><span class="status-dot status-error"></span> Error</span>
+      </div>
+
+      <section class="leaderboard-section">
+        <div class="section-head">
+          <div>
+            <p class="eyebrow">Leaderboard</p>
+          </div>
+        </div>
+        <div class="leaderboard-table-card">
+          <table class="leaderboard-table">
+            <thead>
+              <tr>
+                <th>Rank</th>
+                <th>Model</th>
+                <th>Score</th>
+                <th>Solves</th>
+                <th>Cost</th>
+                <th>Provider</th>
+              </tr>
+            </thead>
+            <tbody id="leaderboard-body">
+              <tr>
+                <td colspan="6" class="message">Loading leaderboard...</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <section class="archive-section">
+        <div class="section-head">
+          <div>
+            <p class="eyebrow">CTF Events</p>
+          </div>
+        </div>
+        <div class="archive-grid" id="archive-grid"></div>
+      </section>
+    </section>
+  </main>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.8/dist/chart.umd.min.js"></script>
+  <script>
+    const dashboardApiUrl = {{ dashboard_api_url|tojson }};
+    const summaryCharts = new Map();
+    const leaderboardCharts = new Map();
+    const sentry = window.ctfarenaSentry;
+
+    function setText(id, value) {
+      const element = document.getElementById(id);
+      if (element) {
+        element.textContent = value;
+      }
+    }
+
+    function appendText(parent, text) {
+      parent.appendChild(document.createTextNode(text));
+    }
+
+    function challengeDetailsUrl(ctfId, challengeId) {
+      return `/ctfs/${encodeURIComponent(ctfId)}/challenges/${encodeURIComponent(challengeId)}/details`;
+    }
+
+    function money(value) {
+      return `$${Number(value || 0).toFixed(4)}`;
+    }
+
+    function modelLogoText(modelName) {
+      const normalized = modelName.toLowerCase();
+      if (normalized.includes("5.4")) return "5.4";
+      if (normalized.includes("5.3")) return "5.3";
+      if (normalized.includes("4.1")) return "4.1";
+      if (normalized.includes("4o")) return "4o";
+      if (normalized.includes("o4")) return "o4";
+      return "AI";
+    }
+
+    function createSolvedFlag(title) {
+      const icon = document.createElement("span");
+      icon.className = "status-flag";
+      icon.title = title;
+      icon.innerHTML = `
+        <svg viewBox="0 0 16 16" aria-hidden="true">
+          <path d="M3 14.5a.75.75 0 0 1-.75-.75V2.25a.75.75 0 0 1 1.5 0v.38c1.2-.5 2.21-.36 3.18-.08.36.1.71.23 1.08.35 1.16.4 2.5.85 4.74-.19A.75.75 0 0 1 13.8 3.4v6.14a.75.75 0 0 1-.43.68c-2.74 1.29-4.48.7-5.85.23-.35-.12-.67-.23-1-.32-.83-.24-1.6-.3-2.77.34v3.28a.75.75 0 0 1-.75.75Z"/>
+        </svg>
+      `;
+      return icon;
+    }
+
+    function renderPieChart(id, labels, values, colors) {
+      const canvas = document.getElementById(id);
+      if (!window.Chart) {
+        canvas.replaceWith(document.createTextNode(values.reduce((sum, value) => sum + value, 0)));
+        return;
+      }
+      canvas.width = 124;
+      canvas.height = 124;
+      canvas.style.width = "124px";
+      canvas.style.height = "124px";
+      const displayLabels = labels.map((label) => (
+        label.length > 14 ? `${label.slice(0, 13)}…` : label
+      ));
+
+      const existing = summaryCharts.get(id);
+      if (existing) {
+        existing.destroy();
+      }
+
+      const chart = new window.Chart(canvas, {
+        type: "pie",
+        data: {
+          labels: displayLabels,
+          datasets: [
+            {
+              data: values,
+              backgroundColor: colors,
+              borderColor: "#ffffff",
+              borderWidth: 2,
+            },
+          ],
+        },
+        options: {
+          responsive: false,
+          maintainAspectRatio: false,
+          animation: false,
+          plugins: {
+            legend: {
+              display: false,
+            },
+            tooltip: {
+              enabled: true,
+              callbacks: {
+                label(context) {
+                  const fullLabel = labels[context.dataIndex] || context.label;
+                  return `${fullLabel}: ${context.parsed}`;
+                },
+              },
+            },
+          },
+        },
+      });
+      summaryCharts.set(id, chart);
+    }
+
+    function gaugeColor(percent) {
+      if (percent < 40) return "#ff453a";
+      if (percent < 70) return "#ff9f0a";
+      return "#34c759";
+    }
+
+    function renderSolveGauge(canvas, solves, attempted) {
+      const percent = attempted > 0 ? Math.round((solves / attempted) * 100) : 0;
+      const color = gaugeColor(percent);
+      const chart = new window.Chart(canvas, {
+        type: "doughnut",
+        data: {
+          labels: ["Solved", "Remaining"],
+          datasets: [
+            {
+              data: [solves, Math.max(attempted - solves, 0)],
+              backgroundColor: [color, "#e8ebef"],
+              borderWidth: 0,
+              cutout: "72%",
+              circumference: 180,
+              rotation: 270,
+            },
+          ],
+        },
+        options: {
+          responsive: false,
+          maintainAspectRatio: false,
+          circumference: 180,
+          rotation: 270,
+          animation: false,
+          plugins: {
+            legend: { display: false },
+            tooltip: { enabled: false },
+          },
+        },
+      });
+      leaderboardCharts.set(canvas.id, chart);
+      return percent;
+    }
+
+    function renderHeader(data) {
+      if (!data.ctf) {
+        setText("ctf-title", "No Active CTF");
+      } else {
+        setText("ctf-title", data.ctf.title);
+      }
+
+      const byCategory = new Map();
+      const byDifficulty = new Map();
+      for (const challenge of data.challenges) {
+        const category = String(challenge.category || "other");
+        const difficulty = String(challenge.difficulty || "unknown");
+        byCategory.set(category, (byCategory.get(category) || 0) + 1);
+        byDifficulty.set(difficulty, (byDifficulty.get(difficulty) || 0) + 1);
+      }
+      const categoryPalette = ["#34c759", "#5ac8fa", "#ff9f0a", "#af52de", "#ff453a", "#cfd4dc", "#30b0c7"];
+      const difficultyPalette = ["#34c759", "#ff9f0a", "#ff453a", "#cfd4dc"];
+      const categoryEntries = [...byCategory.entries()];
+      const difficultyEntries = [...byDifficulty.entries()];
+      renderPieChart(
+        "chart-categories",
+        categoryEntries.map(([label]) => label),
+        categoryEntries.map(([, value]) => value),
+        categoryEntries.map((_, index) => categoryPalette[index % categoryPalette.length]),
+      );
+      renderPieChart(
+        "chart-difficulty",
+        difficultyEntries.map(([label]) => label),
+        difficultyEntries.map(([, value]) => value),
+        difficultyEntries.map((_, index) => difficultyPalette[index % difficultyPalette.length]),
+      );
+
+      const solvedCells = Number(data.matrix.solved_cells || 0);
+      const totalCells = Number(data.matrix.total_cells || 0);
+      const unsolvedCells = Math.max(totalCells - solvedCells, 0);
+      renderPieChart("chart-solved", ["Solved", "Remaining"], [solvedCells, unsolvedCells], ["#34c759", "#cfd4dc"]);
+
+      const activeModelCounts = data.models.map((model) => ({
+        label: model.name,
+        value: model.cells.filter((cell) => cell.kind === "trying").length,
+        color: model.color || "#cfd4dc",
+      })).filter((item) => item.value > 0);
+      renderPieChart(
+        "chart-running",
+        activeModelCounts.map((item) => item.label),
+        activeModelCounts.map((item) => item.value),
+        activeModelCounts.map((item) => item.color),
+      );
+    }
+
+    function renderMatrix(data) {
+      const headRow = document.getElementById("matrix-head");
+      const body = document.getElementById("matrix-body");
+      headRow.replaceChildren();
+      body.replaceChildren();
+
+      const modelHead = document.createElement("th");
+      modelHead.textContent = "Model";
+      headRow.appendChild(modelHead);
+
+      for (const challenge of data.challenges) {
+        const th = document.createElement("th");
+        const label = document.createElement("span");
+        label.className = "matrix-challenge-label";
+        if (data.ctf && challenge.id != null) {
+          const link = document.createElement("a");
+          link.className = "challenge-link";
+          link.href = challengeDetailsUrl(data.ctf.id, challenge.id);
+          link.target = "_blank";
+          link.rel = "noopener noreferrer";
+          link.textContent = challenge.name;
+          label.appendChild(link);
+        } else {
+          label.textContent = challenge.name;
+        }
+        th.appendChild(label);
+        th.title = `${challenge.name} · ${challenge.category} · ${challenge.points} pts · ${challenge.difficulty}`;
+        headRow.appendChild(th);
+      }
+
+      if (!data.challenges.length || !data.models.length) {
+        const row = document.createElement("tr");
+        const cell = document.createElement("td");
+        cell.colSpan = Math.max(2, data.challenges.length + 1);
+        cell.className = "message";
+        cell.textContent = "Sync challenges and start a competition to populate the matrix.";
+        row.appendChild(cell);
+        body.appendChild(row);
+        return;
+      }
+
+      for (const model of data.models) {
+        const row = document.createElement("tr");
+        const label = document.createElement("th");
+        label.scope = "row";
+
+        const labelWrap = document.createElement("span");
+        labelWrap.className = "model-label";
+        const logo = document.createElement("span");
+        logo.className = "model-logo";
+        logo.textContent = modelLogoText(model.name);
+        logo.style.borderColor = model.color || "rgba(17, 19, 24, 0.08)";
+        logo.style.background = `${model.color || "#cfd4dc"}1f`;
+        const name = document.createElement("strong");
+        name.textContent = model.name;
+        labelWrap.append(logo, name);
+        label.appendChild(labelWrap);
+        row.appendChild(label);
+
+        for (const cellData of model.cells) {
+          const cell = document.createElement("td");
+          const title = `${cellData.challenge}: ${cellData.label} · ${money(cellData.cost_usd)}`;
+          if (cellData.kind === "solved") {
+            cell.appendChild(createSolvedFlag(title));
+          } else {
+            const dot = document.createElement("span");
+            dot.className = `status-dot status-${cellData.kind}`;
+            dot.title = title;
+            cell.appendChild(dot);
+          }
+          row.appendChild(cell);
+        }
+
+        body.appendChild(row);
+      }
+    }
+
+    function renderLeaderboard(rows) {
+      const body = document.getElementById("leaderboard-body");
+      for (const chart of leaderboardCharts.values()) {
+        chart.destroy();
+      }
+      leaderboardCharts.clear();
+      body.replaceChildren();
+
+      if (!rows.length) {
+        const row = document.createElement("tr");
+        const cell = document.createElement("td");
+        cell.colSpan = 6;
+        cell.className = "message";
+        cell.textContent = "No model runs have been scored yet.";
+        row.appendChild(cell);
+        body.appendChild(row);
+        return;
+      }
+
+      for (const row of rows) {
+        const tr = document.createElement("tr");
+        tr.className = `rank-row rank-${row.rank}`;
+        const values = [`#${row.rank}`, row.model, `${row.score} pts`];
+
+        for (const [index, value] of values.entries()) {
+          const cell = document.createElement("td");
+          if (index === 0) {
+            const badge = document.createElement("span");
+            badge.className = `rank-badge rank-badge-${row.rank}`;
+            badge.textContent = value;
+            cell.appendChild(badge);
+          } else {
+            cell.textContent = value;
+          }
+          tr.appendChild(cell);
+        }
+
+        const gaugeCell = document.createElement("td");
+        gaugeCell.className = "solve-gauge-cell";
+        const gauge = document.createElement("div");
+        gauge.className = "solve-gauge";
+        const canvas = document.createElement("canvas");
+        canvas.id = `solve-gauge-${row.rank}`;
+        canvas.width = 58;
+        canvas.height = 34;
+        canvas.style.width = "58px";
+        canvas.style.height = "34px";
+        const label = document.createElement("span");
+        label.className = "solve-gauge-label";
+        gauge.append(canvas, label);
+        gaugeCell.appendChild(gauge);
+        tr.appendChild(gaugeCell);
+
+        for (const value of [money(row.total_usd), row.provider]) {
+          const cell = document.createElement("td");
+          cell.textContent = value;
+          tr.appendChild(cell);
+        }
+
+        body.appendChild(tr);
+        const percent = renderSolveGauge(canvas, row.solves, row.attempted);
+        label.textContent = `${percent}%`;
+      }
+    }
+
+    function renderArchive(items) {
+      const grid = document.getElementById("archive-grid");
+      grid.replaceChildren();
+
+      if (!items.length) {
+        const message = document.createElement("p");
+        message.className = "message";
+        message.textContent = "No archived CTFs yet.";
+        grid.appendChild(message);
+        return;
+      }
+
+      for (const item of items) {
+        const link = document.createElement("a");
+        link.className = "archive-card";
+        link.href = item.url;
+
+        const title = document.createElement("strong");
+        title.textContent = item.title;
+        const meta = document.createElement("small");
+        meta.textContent = `${item.status} · ${item.challenge_count} challenges · ${item.run_count} runs`;
+
+        link.append(title, meta);
+        grid.appendChild(link);
+      }
+    }
+
+    async function loadDashboard() {
+      sentry?.breadcrumb("frontend.dashboard", "Loading dashboard", { dashboardApiUrl });
+      const response = await fetch(dashboardApiUrl);
+      if (!response.ok) {
+        sentry?.message("Dashboard fetch failed", "warning", { status: response.status, dashboardApiUrl });
+        throw new Error("Failed to fetch dashboard data");
+      }
+
+      const data = await response.json();
+      sentry?.setTag("ctf_id", data.ctf ? data.ctf.id : "none");
+      sentry?.breadcrumb("frontend.dashboard", "Dashboard loaded", {
+        challengeCount: data.overview.challenge_count,
+        modelCount: data.overview.model_count,
+      });
+      renderHeader(data);
+      renderMatrix(data);
+      renderLeaderboard(data.leaderboard);
+      renderArchive(data.recent_ctfs);
+    }
+
+    loadDashboard().catch((error) => {
+      sentry?.capture(error, { dashboardApiUrl });
+      const body = document.getElementById("matrix-body");
+      body.innerHTML = "";
+      const row = document.createElement("tr");
+      const cell = document.createElement("td");
+      cell.colSpan = 11;
+      cell.className = "message";
+      cell.textContent = error.message;
+      row.appendChild(cell);
+      body.appendChild(row);
+    });
+  </script>
+</body>
+</html>

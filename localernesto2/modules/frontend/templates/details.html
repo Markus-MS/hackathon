@@ -1,0 +1,376 @@
+{% extends "frontend_base.html" %}
+
+{% block title %}{{ app_name }} Details{% endblock %}
+
+{% block content %}
+  <section class="panel details-panel">
+    <p class="eyebrow">Details</p>
+    <h1 id="title">Details</h1>
+    <p class="subtitle" id="summary">Loading active CTF metadata...</p>
+    <div class="meta" id="meta"></div>
+    <div id="challenge-overview" class="challenge-overview-grid" hidden></div>
+    <section id="terminal-grid" class="terminal-grid" hidden></section>
+    <a class="details-link" href="{{ url_for('frontend.index') }}">Back Home</a>
+  </section>
+{% endblock %}
+
+{% block scripts %}
+  <script>
+    const challengeApiUrl = {{ challenge_api_url|tojson }};
+    const detailsApiUrl = {{ details_api_url|tojson }};
+    const rerunBaseUrl = {{ url_for('admin.rerun_challenge_run', challenge_run_id=0)|tojson }};
+    const terminalSockets = new Map();
+
+    function setText(id, value) {
+      const el = document.getElementById(id);
+      if (el) el.textContent = value;
+    }
+
+    function addMeta(label, value) {
+      const meta = document.getElementById("meta");
+      const card = document.createElement("div");
+      card.className = "meta-card";
+      card.textContent = `${label}: ${value}`;
+      meta.appendChild(card);
+    }
+
+    function money(value) {
+      return `$${Number(value || 0).toFixed(4)}`;
+    }
+
+    function seconds(value) {
+      if (value == null) return "n/a";
+      return `${Number(value).toFixed(1)}s`;
+    }
+
+    function renderChallengeOverview(data) {
+      const wrap = document.getElementById("challenge-overview");
+      wrap.replaceChildren();
+      wrap.hidden = false;
+
+      const total = data.models.length;
+      const solved = data.models.filter((item) => item.status === "solved").length;
+      const trying = data.models.filter((item) => item.status === "running").length;
+
+      const cards = [
+        ["CTF", data.ctf?.title || "unknown"],
+        ["Category", data.challenge?.category || "n/a"],
+        ["Points", data.challenge?.points ?? "n/a"],
+        ["Solved Models", `${solved}/${total}`],
+        ["Active Models", trying],
+      ];
+
+      for (const [label, value] of cards) {
+        const card = document.createElement("article");
+        card.className = "challenge-overview-card";
+        const labelEl = document.createElement("span");
+        labelEl.textContent = label;
+        const valueEl = document.createElement("strong");
+        valueEl.textContent = String(value);
+        card.append(labelEl, valueEl);
+        wrap.appendChild(card);
+      }
+    }
+
+    async function rerunChallenge(challengeRunId, btn) {
+      const url = rerunBaseUrl.replace("/0/", `/${challengeRunId}/`);
+      btn.disabled = true;
+      btn.textContent = "Queuing…";
+      try {
+        const resp = await fetch(url, { method: "POST" });
+        if (!resp.ok) {
+          const body = await resp.json().catch(() => ({}));
+          btn.textContent = body.error || "Error";
+          btn.disabled = false;
+          return;
+        }
+        btn.textContent = "Queued";
+        setTimeout(() => loadChallengeDetails().catch(() => {}), 800);
+      } catch (e) {
+        btn.textContent = "Failed";
+        btn.disabled = false;
+      }
+    }
+
+    function createTerminalController(terminalEl) {
+      const renderQueue = [];
+      let renderActive = false;
+      let parkedPill = null;
+
+      function scrollToBottom() {
+        terminalEl.scrollTop = terminalEl.scrollHeight;
+      }
+
+      function appendHtml(html, animate) {
+        terminalEl.insertAdjacentHTML("beforeend", html);
+        if (animate) {
+          const last = terminalEl.lastElementChild;
+          if (last) {
+            last.classList.add("reveal");
+          }
+        }
+        scrollToBottom();
+      }
+
+      function stripWrapper(html) {
+        const match = html.match(/^<span class="([^"]*)">(.*)<\/span>$/s);
+        if (!match) {
+          return null;
+        }
+        return { className: match[1], innerHtml: match[2] };
+      }
+
+      function enqueue(item) {
+        renderQueue.push(item);
+        if (!renderActive) {
+          drain();
+        }
+      }
+
+      function drain() {
+        if (!renderQueue.length) {
+          renderActive = false;
+          return;
+        }
+        renderActive = true;
+        const item = renderQueue.shift();
+        if (item.mode !== "type") {
+          appendHtml(item.html, !!item.animate);
+          drain();
+          return;
+        }
+        const wrapped = stripWrapper(item.html);
+        if (!wrapped) {
+          appendHtml(item.html, false);
+          drain();
+          return;
+        }
+        const line = document.createElement("span");
+        line.className = wrapped.className;
+        const container = document.createElement("span");
+        container.className = "typing-cursor";
+        const textNode = document.createElement("span");
+        container.appendChild(textNode);
+        line.appendChild(container);
+
+        if (parkedPill) {
+          parkedPill.remove();
+          parkedPill = null;
+        }
+
+        let pill = null;
+        if (item.modelLabel) {
+          pill = document.createElement("span");
+          pill.className = "cursor-model-pill";
+          if (item.modelLabel === "claude") {
+            pill.classList.add("claude");
+          }
+          const label = document.createElement("span");
+          label.textContent = item.modelLabel;
+          pill.appendChild(label);
+          container.appendChild(pill);
+        }
+
+        const source = document.createElement("div");
+        source.innerHTML = wrapped.innerHtml;
+        const text = source.textContent || "";
+        let index = 0;
+        terminalEl.appendChild(line);
+
+        function tick() {
+          if (index >= text.length) {
+            container.classList.remove("typing-cursor");
+            textNode.textContent = text;
+            if (pill) {
+              parkedPill = pill;
+            }
+            scrollToBottom();
+            drain();
+            return;
+          }
+          index += 1;
+          textNode.textContent = text.slice(0, index);
+          scrollToBottom();
+          window.setTimeout(tick, item.delayMs || 24);
+        }
+
+        tick();
+      }
+
+      return {
+        enqueue,
+        replaceText(text) {
+          terminalEl.textContent = text || "No terminal output yet.";
+        },
+        scrollToBottom,
+      };
+    }
+
+    function connectLiveTerminal(url, controller, onStatus) {
+      if (!url) {
+        return null;
+      }
+      let sawAppend = false;
+      const socket = new WebSocket(url);
+      socket.addEventListener("message", (event) => {
+        const payload = JSON.parse(event.data);
+        if (payload.type === "append") {
+          if (!sawAppend) {
+            controller.replaceText("");
+            sawAppend = true;
+          }
+          controller.enqueue({
+            html: payload.html,
+            mode: payload.animate_mode === "type" ? "type" : "append",
+            delayMs: payload.delay_ms || 32,
+            animate: !!payload.animate,
+            modelLabel: payload.model_label || "",
+          });
+        } else if (payload.type === "status" && onStatus) {
+          onStatus(payload);
+        }
+      });
+      return socket;
+    }
+
+    function renderChallengeTerminals(data) {
+      const grid = document.getElementById("terminal-grid");
+      for (const socket of terminalSockets.values()) {
+        socket.close();
+      }
+      terminalSockets.clear();
+      grid.replaceChildren();
+      grid.hidden = false;
+
+      if (!data.models.length) {
+        const empty = document.createElement("p");
+        empty.className = "message";
+        empty.textContent = "No model runs found for this challenge.";
+        grid.appendChild(empty);
+        return;
+      }
+
+      for (const row of data.models) {
+        const card = document.createElement("article");
+        card.className = "terminal-card";
+
+        const head = document.createElement("header");
+        head.className = "terminal-head";
+        const model = document.createElement("span");
+        model.className = "terminal-model";
+        const dot = document.createElement("span");
+        dot.className = `dot status-${row.kind || "idle"}`;
+        if (row.color) dot.style.background = row.color;
+        const name = document.createElement("strong");
+        name.textContent = row.model;
+        model.append(dot, name);
+        const status = document.createElement("span");
+        status.className = `pill pill-${row.status}`;
+        status.textContent = String(row.label || row.status).replaceAll("_", " ");
+        head.append(model, status);
+
+        if (row.challenge_run_id) {
+          const rerunBtn = document.createElement("button");
+          rerunBtn.className = "rerun-btn";
+          rerunBtn.textContent = "Rerun";
+          rerunBtn.title = `Rerun challenge for ${row.model}`;
+          rerunBtn.addEventListener("click", () => rerunChallenge(row.challenge_run_id, rerunBtn));
+          head.appendChild(rerunBtn);
+        }
+
+        const meta = document.createElement("div");
+        meta.className = "terminal-meta";
+        const metrics = [
+          `Provider: ${row.provider || "n/a"}`,
+          `Cost: ${money(row.cost_usd)}`,
+          `Attempts: ${row.flag_attempts || 0}`,
+          `Turns: ${row.turns || 0}`,
+          `Solve Time: ${seconds(row.solve_time_seconds)}`,
+        ];
+        for (const metric of metrics) {
+          const chip = document.createElement("span");
+          chip.className = "terminal-chip";
+          chip.textContent = metric;
+          meta.appendChild(chip);
+        }
+
+        const pane = document.createElement("div");
+        pane.className = "terminal-pane";
+        const controller = createTerminalController(pane);
+        if (row.live_ws_url) {
+          controller.replaceText(row.terminal_text || "Waiting for live terminal output...");
+          const socket = connectLiveTerminal(row.live_ws_url, controller, (payload) => {
+            status.textContent = payload.status || status.textContent;
+            const metrics = payload.metrics || {};
+            meta.dataset.liveCommands = String(metrics.commands || 0);
+            meta.dataset.liveMessages = String(metrics.messages || 0);
+            let liveChip = meta.querySelector(".terminal-chip-live");
+            if (!liveChip) {
+              liveChip = document.createElement("span");
+              liveChip.className = "terminal-chip terminal-chip-live";
+              meta.appendChild(liveChip);
+            }
+            liveChip.textContent = `Live: ${payload.phase || "running"} · Cmd ${metrics.commands || 0} · Msg ${metrics.messages || 0}`;
+          });
+          if (socket && row.challenge_run_id) {
+            terminalSockets.set(row.challenge_run_id, socket);
+          }
+        } else {
+          controller.replaceText(row.terminal_text || "No terminal output yet.");
+        }
+
+        card.append(head, meta, pane);
+        grid.appendChild(card);
+      }
+    }
+
+    async function loadChallengeDetails() {
+      const response = await fetch(challengeApiUrl, { cache: "no-store" });
+      if (!response.ok) {
+        throw new Error("Failed to fetch details");
+      }
+      const data = await response.json();
+      document.getElementById("meta").replaceChildren();
+      setText("title", data.challenge?.name || "Challenge");
+      setText(
+        "summary",
+        `${data.ctf?.title || "CTF"} · ${data.challenge?.difficulty || "unknown"} · ${data.challenge?.category || "misc"}`
+      );
+      renderChallengeOverview(data);
+      renderChallengeTerminals(data);
+    }
+
+    async function loadOverviewDetails() {
+      const response = await fetch(detailsApiUrl);
+      if (!response.ok) {
+        throw new Error("Failed to fetch details");
+      }
+      const data = await response.json();
+      const meta = document.getElementById("meta");
+      meta.replaceChildren();
+
+      if (!data.ctf) {
+        setText("title", "No Active Week");
+        setText("summary", data.summary);
+        return;
+      }
+
+      setText("title", data.ctf.title);
+      setText("summary", `${data.ctf.status} · ${data.ctf.ctfd_url}`);
+      addMeta("Challenges", data.overview.challenge_count);
+      addMeta("Model runs", data.overview.model_count);
+      addMeta("Runs active", data.overview.running_count);
+      addMeta("Sandbox", data.ctf.sandbox_digest.slice(-16));
+    }
+
+    if (challengeApiUrl) {
+      loadChallengeDetails().catch((error) => {
+        setText("summary", error.message);
+      });
+    } else {
+      loadOverviewDetails().catch((error) => {
+        setText("summary", error.message);
+      });
+    }
+  </script>
+{% endblock %}
