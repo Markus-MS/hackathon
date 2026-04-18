@@ -998,7 +998,13 @@ def _extract_candidates_from_text(text: str, flag_regex: str) -> list[str]:
             continue
         if candidate in candidates:
             continue
-        if "{" in candidate and "}" in candidate and not candidate.lower().startswith(("http://", "https://")):
+        prefix = candidate.split("{", 1)[0].strip()
+        if (
+            "{" in candidate
+            and "}" in candidate
+            and re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,63}", prefix)
+            and not candidate.lower().startswith(("http://", "https://"))
+        ):
             candidates.append(candidate)
     return candidates
 
@@ -1215,9 +1221,102 @@ def _entries_from_message_block(block: object) -> list[tuple[str, str]]:
     return []
 
 
+def _opencode_tool_input_summary(tool_name: str, state: dict[str, object], part: dict[str, object]) -> str:
+    tool_input = state.get("input") or part.get("input") or {}
+    if not isinstance(tool_input, dict):
+        return _coerce_text(tool_input)
+    command = _extract_command_from_mapping(tool_input)
+    if tool_name == "bash" and command:
+        return f"$ {command}"
+    title = _coerce_text(state.get("title") or tool_input.get("description"))
+    if title:
+        return title
+    if command:
+        return command
+    for key in ("filePath", "filepath", "path", "pattern", "query", "url"):
+        value = _coerce_text(tool_input.get(key))
+        if value:
+            return value
+    return ""
+
+
+def _opencode_tool_output(state: dict[str, object]) -> str:
+    output = _coerce_text(state.get("output"))
+    if output:
+        return output
+    metadata = state.get("metadata") or {}
+    if isinstance(metadata, dict):
+        output = _coerce_text(metadata.get("output") or metadata.get("stdout") or metadata.get("stderr"))
+        if output:
+            return output
+    return ""
+
+
+def _token_summary_from_opencode_part(part: dict[str, object]) -> str:
+    tokens = part.get("tokens") or {}
+    if not isinstance(tokens, dict):
+        return ""
+    input_tokens = int(tokens.get("input") or tokens.get("input_tokens") or 0)
+    output_tokens = int(tokens.get("output") or tokens.get("output_tokens") or 0)
+    reasoning_tokens = int(tokens.get("reasoning") or tokens.get("reasoning_tokens") or 0)
+    cache = tokens.get("cache") or {}
+    cached_input_tokens = 0
+    if isinstance(cache, dict):
+        cached_input_tokens = int(cache.get("read") or cache.get("cache_read_input_tokens") or 0)
+    cached_input_tokens = int(
+        tokens.get("cached") or tokens.get("cached_tokens") or cached_input_tokens or 0
+    )
+    pieces = []
+    if input_tokens:
+        pieces.append(f"in={input_tokens}")
+    if output_tokens:
+        pieces.append(f"out={output_tokens}")
+    if reasoning_tokens:
+        pieces.append(f"reasoning={reasoning_tokens}")
+    if cached_input_tokens:
+        pieces.append(f"cached={cached_input_tokens}")
+    return ", ".join(pieces)
+
+
 def _activity_entries_from_opencode_event(event: dict[str, object]) -> list[tuple[str, str]]:
     entries: list[tuple[str, str]] = []
     event_type = str(event.get("type") or "").strip()
+    part = event.get("part") or {}
+    if not isinstance(part, dict):
+        part = {}
+
+    if event_type == "step_start":
+        entries.append(("status", "OpenCode started a solving step."))
+    elif event_type == "tool_use":
+        tool_name = str(part.get("tool") or part.get("name") or "tool").strip() or "tool"
+        state = part.get("state") or {}
+        if not isinstance(state, dict):
+            state = {}
+        summary = _opencode_tool_input_summary(tool_name, state, part)
+        if tool_name == "bash" and summary.startswith("$ "):
+            entries.append(("command", summary))
+        else:
+            label = f"[{tool_name}]"
+            entries.append(("note", f"{label} {summary}".strip()))
+        output = _opencode_tool_output(state)
+        if output:
+            entries.append(("output", output))
+    elif event_type == "text":
+        text = _coerce_text(part.get("text") or event.get("text") or event.get("content"))
+        if text:
+            entries.append(("assistant", text))
+    elif event_type == "step_finish":
+        reason = str(part.get("reason") or "").strip()
+        token_summary = _token_summary_from_opencode_part(part)
+        if reason == "tool-calls":
+            content = "OpenCode is continuing after tool use."
+        elif reason:
+            content = f"OpenCode finished a solving step ({reason})."
+        else:
+            content = "OpenCode finished a solving step."
+        if token_summary:
+            content = f"{content} Tokens: {token_summary}."
+        entries.append(("status", content))
 
     message = event.get("message")
     if isinstance(message, dict):
@@ -1317,11 +1416,37 @@ class OpencodeActivityCollector:
             usage = event.get(usage_key) or {}
             if not isinstance(usage, dict):
                 continue
-            self.input_tokens += int(usage.get("input_tokens") or usage.get("prompt_tokens") or 0)
-            self.output_tokens += int(usage.get("output_tokens") or usage.get("completion_tokens") or 0)
-            self.reasoning_tokens += int(usage.get("reasoning_tokens") or 0)
+            self.input_tokens += int(
+                usage.get("input_tokens") or usage.get("prompt_tokens") or usage.get("input") or 0
+            )
+            self.output_tokens += int(
+                usage.get("output_tokens") or usage.get("completion_tokens") or usage.get("output") or 0
+            )
+            self.reasoning_tokens += int(usage.get("reasoning_tokens") or usage.get("reasoning") or 0)
             self.cached_input_tokens += int(
                 usage.get("cached_tokens") or usage.get("cache_read_input_tokens") or 0
+            )
+        part = event.get("part") or {}
+        if not isinstance(part, dict):
+            return
+        tokens = part.get("tokens") or {}
+        if not isinstance(tokens, dict):
+            return
+        self.input_tokens += int(tokens.get("input") or tokens.get("input_tokens") or 0)
+        self.output_tokens += int(tokens.get("output") or tokens.get("output_tokens") or 0)
+        self.reasoning_tokens += int(tokens.get("reasoning") or tokens.get("reasoning_tokens") or 0)
+        cache = tokens.get("cache") or {}
+        if isinstance(cache, dict):
+            self.cached_input_tokens += int(
+                cache.get("read")
+                or cache.get("cache_read_input_tokens")
+                or tokens.get("cached")
+                or tokens.get("cached_tokens")
+                or 0
+            )
+        else:
+            self.cached_input_tokens += int(
+                tokens.get("cached") or tokens.get("cached_tokens") or 0
             )
 
     def consume_stdout_line(self, raw_line: str) -> None:
@@ -1339,7 +1464,7 @@ class OpencodeActivityCollector:
         event_type = str(event.get("type") or "").strip()
         if event_type:
             self.event_type_counts[event_type] = self.event_type_counts.get(event_type, 0) + 1
-        if event_type in {"assistant", "message"}:
+        if event_type in {"assistant", "message", "text"}:
             self.turns += 1
         self._update_usage(event)
 
