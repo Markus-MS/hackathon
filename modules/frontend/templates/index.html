@@ -268,7 +268,7 @@
         setText("ctf-title", "https://ctfarena.live/ is waiting.");
         setText("ctf-copy", "Create a week in Admin, sync challenges from CTFd, attach model accounts, and start the run.");
       } else {
-        const ctfUrl = data.ctf.ctfd_url || "https://glacierctf.example";
+        const ctfUrl = data.ctf.ctfd_url || "No CTFd URL set";
         setText("eyebrow", data.ctf.status);
         setText("ctf-title", data.ctf.title);
         setText(

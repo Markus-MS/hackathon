@@ -95,10 +95,10 @@ def build_leaderboard(db: sqlite3.Connection, ctf_id: int) -> list[dict[str, obj
 def build_matrix(db: sqlite3.Connection, ctf_id: int) -> dict[str, object]:
     challenges = db.execute(
         """
-        SELECT id, name, category, points, difficulty
+        SELECT id, name, category, points, difficulty, solves
         FROM challenges
         WHERE ctf_event_id = ?
-        ORDER BY category, points DESC, name
+        ORDER BY solves DESC, points ASC, name
         """,
         (ctf_id,),
     ).fetchall()
@@ -154,6 +154,7 @@ def build_matrix(db: sqlite3.Connection, ctf_id: int) -> dict[str, object]:
                 "category": challenge["category"],
                 "points": challenge["points"],
                 "difficulty": challenge["difficulty"],
+                "solves": challenge["solves"],
             },
             "cells": [],
         }

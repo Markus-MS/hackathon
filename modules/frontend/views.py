@@ -27,189 +27,6 @@ STATUS_KIND = {
 }
 
 
-DEMO_CHALLENGES = [
-    {"id": 1, "name": "chall1", "category": "web", "points": 100, "difficulty": "easy"},
-    {"id": 2, "name": "chall2", "category": "pwn", "points": 150, "difficulty": "easy"},
-    {"id": 3, "name": "chall3", "category": "crypto", "points": 200, "difficulty": "medium"},
-    {"id": 4, "name": "chall4", "category": "rev", "points": 250, "difficulty": "medium"},
-    {"id": 5, "name": "chall5", "category": "forensics", "points": 300, "difficulty": "medium"},
-    {"id": 6, "name": "chall6", "category": "misc", "points": 350, "difficulty": "medium"},
-    {"id": 7, "name": "chall7", "category": "web", "points": 400, "difficulty": "hard"},
-    {"id": 8, "name": "chall8", "category": "pwn", "points": 450, "difficulty": "hard"},
-    {"id": 9, "name": "chall9", "category": "crypto", "points": 500, "difficulty": "hard"},
-    {"id": 10, "name": "chall10", "category": "ai", "points": 550, "difficulty": "hard"},
-]
-
-
-DEMO_MODELS = [
-    {
-        "name": "gpt 5.4",
-        "slug": "gpt-5-4",
-        "color": "#34c759",
-        "cells": [
-            {"status": "solved", "kind": "solved"},
-            {"status": "solved", "kind": "solved"},
-            {"status": "running", "kind": "trying"},
-            {"status": "queued", "kind": "idle"},
-            {"status": "solved", "kind": "solved"},
-            {"status": "running", "kind": "trying"},
-            {"status": "queued", "kind": "idle"},
-            {"status": "solved", "kind": "solved"},
-            {"status": "queued", "kind": "idle"},
-            {"status": "running", "kind": "trying"},
-        ],
-    },
-    {
-        "name": "gpt 5.3",
-        "slug": "gpt-5-3",
-        "color": "#5ac8fa",
-        "cells": [
-            {"status": "running", "kind": "trying"},
-            {"status": "queued", "kind": "idle"},
-            {"status": "solved", "kind": "solved"},
-            {"status": "solved", "kind": "solved"},
-            {"status": "queued", "kind": "idle"},
-            {"status": "running", "kind": "trying"},
-            {"status": "solved", "kind": "solved"},
-            {"status": "queued", "kind": "idle"},
-            {"status": "running", "kind": "trying"},
-            {"status": "queued", "kind": "idle"},
-        ],
-    },
-    {
-        "name": "gpt 4.1",
-        "slug": "gpt-4-1",
-        "color": "#af52de",
-        "cells": [
-            {"status": "queued", "kind": "idle"},
-            {"status": "running", "kind": "trying"},
-            {"status": "queued", "kind": "idle"},
-            {"status": "solved", "kind": "solved"},
-            {"status": "solved", "kind": "solved"},
-            {"status": "queued", "kind": "idle"},
-            {"status": "running", "kind": "trying"},
-            {"status": "solved", "kind": "solved"},
-            {"status": "queued", "kind": "idle"},
-            {"status": "solved", "kind": "solved"},
-        ],
-    },
-    {
-        "name": "gpt 4o",
-        "slug": "gpt-4o",
-        "color": "#ff9f0a",
-        "cells": [
-            {"status": "solved", "kind": "solved"},
-            {"status": "queued", "kind": "idle"},
-            {"status": "running", "kind": "trying"},
-            {"status": "queued", "kind": "idle"},
-            {"status": "solved", "kind": "solved"},
-            {"status": "solved", "kind": "solved"},
-            {"status": "queued", "kind": "idle"},
-            {"status": "running", "kind": "trying"},
-            {"status": "queued", "kind": "idle"},
-            {"status": "queued", "kind": "idle"},
-        ],
-    },
-    {
-        "name": "o4-mini",
-        "slug": "o4-mini",
-        "color": "#ff453a",
-        "cells": [
-            {"status": "queued", "kind": "idle"},
-            {"status": "solved", "kind": "solved"},
-            {"status": "queued", "kind": "idle"},
-            {"status": "running", "kind": "trying"},
-            {"status": "queued", "kind": "idle"},
-            {"status": "solved", "kind": "solved"},
-            {"status": "running", "kind": "trying"},
-            {"status": "queued", "kind": "idle"},
-            {"status": "solved", "kind": "solved"},
-            {"status": "running", "kind": "trying"},
-        ],
-    },
-]
-
-
-DEMO_LEADERBOARD = [
-    {
-        "rank": 1,
-        "model": "gpt 5.4",
-        "provider": "OpenAI",
-        "score": 1650,
-        "solves": 8,
-        "attempted": 10,
-        "total_usd": 1.2842,
-    },
-    {
-        "rank": 2,
-        "model": "gpt 4.1",
-        "provider": "OpenAI",
-        "score": 1400,
-        "solves": 7,
-        "attempted": 10,
-        "total_usd": 0.8739,
-    },
-    {
-        "rank": 3,
-        "model": "gpt 5.3",
-        "provider": "OpenAI",
-        "score": 1150,
-        "solves": 6,
-        "attempted": 10,
-        "total_usd": 1.0465,
-    },
-    {
-        "rank": 4,
-        "model": "gpt 4o",
-        "provider": "OpenAI",
-        "score": 900,
-        "solves": 4,
-        "attempted": 10,
-        "total_usd": 0.5127,
-    },
-    {
-        "rank": 5,
-        "model": "o4-mini",
-        "provider": "OpenAI",
-        "score": 850,
-        "solves": 3,
-        "attempted": 10,
-        "total_usd": 0.2214,
-    },
-]
-
-
-DEMO_RECENT_CTFS = [
-    {
-        "id": 101,
-        "title": "AlpineCTF",
-        "status": "completed",
-        "challenge_count": 12,
-        "run_count": 48,
-        "completed_runs": 42,
-        "url": "#archive-alpine",
-    },
-    {
-        "id": 102,
-        "title": "FrostbyteCTF",
-        "status": "completed",
-        "challenge_count": 9,
-        "run_count": 35,
-        "completed_runs": 31,
-        "url": "#archive-frostbyte",
-    },
-    {
-        "id": 103,
-        "title": "SummitCTF",
-        "status": "completed",
-        "challenge_count": 15,
-        "run_count": 62,
-        "completed_runs": 55,
-        "url": "#archive-summit",
-    },
-]
-
-
 @frontend_bp.get("/")
 def index():
     return render_template(
@@ -272,14 +89,14 @@ def healthz():
 
 def build_dashboard_payload(ctf_id: int | None = None) -> dict[str, object]:
     if "DATABASE_PATH" not in current_app.config:
-        return build_demo_dashboard_payload([])
+        return build_empty_dashboard_payload([])
 
     db = get_db()
     ctf = ctf_service.get_ctf(db, ctf_id) if ctf_id is not None else ctf_service.get_active_ctf(db)
     recent_ctfs = [serialize_recent_ctf(row) for row in ctf_service.list_ctfs(db)]
 
     if ctf is None:
-        return build_demo_dashboard_payload(recent_ctfs)
+        return build_empty_dashboard_payload(recent_ctfs)
 
     matrix = leaderboard.build_matrix(db, ctf["id"])
     models = []
@@ -323,6 +140,7 @@ def build_dashboard_payload(ctf_id: int | None = None) -> dict[str, object]:
                 "category": row["challenge"]["category"],
                 "points": row["challenge"]["points"],
                 "difficulty": row["challenge"]["difficulty"],
+                "solves": row["challenge"]["solves"],
             }
             for row in matrix["rows"]
         ],
@@ -335,69 +153,26 @@ def build_dashboard_payload(ctf_id: int | None = None) -> dict[str, object]:
         "recent_ctfs": recent_ctfs,
         "admin_url": safe_url_for("admin.dashboard"),
     }
-    if not payload["challenges"] or not payload["models"]:
-        return build_demo_dashboard_payload(recent_ctfs)
     return payload
 
 
-def build_demo_dashboard_payload(recent_ctfs: list[dict[str, object]]) -> dict[str, object]:
-    models = []
-    solved_cells = 0
-    trying_cells = 0
-    for model in DEMO_MODELS:
-        cells = []
-        for challenge, cell in zip(DEMO_CHALLENGES, model["cells"], strict=True):
-            if cell["kind"] == "solved":
-                solved_cells += 1
-            elif cell["kind"] == "trying":
-                trying_cells += 1
-            cells.append(
-                {
-                    "challenge": challenge["name"],
-                    "category": challenge["category"],
-                    "points": challenge["points"],
-                    "status": cell["status"],
-                    "kind": cell["kind"],
-                    "label": str(cell["status"]).replace("_", " "),
-                    "cost_usd": None,
-                    "solve_time_seconds": None,
-                    "error_message": None,
-                }
-            )
-        models.append(
-            {
-                "name": model["name"],
-                "slug": model["slug"],
-                "color": model["color"],
-                "states": [cell["kind"] for cell in cells],
-                "cells": cells,
-            }
-        )
-
+def build_empty_dashboard_payload(recent_ctfs: list[dict[str, object]]) -> dict[str, object]:
     return {
-        "ctf": {
-            "id": 0,
-            "title": "GlacierCTF",
-            "status": "active",
-            "ctfd_url": None,
-            "sandbox_digest": "demo",
-            "budget_usd": 25.0,
-            "budget_wall_seconds": 14400,
-        },
-        "status_text": "Playing GlacierCTF now",
+        "ctf": None,
+        "status_text": "No active CTF is configured.",
         "overview": {
-            "challenge_count": len(DEMO_CHALLENGES),
-            "model_count": len(models),
-            "running_count": trying_cells,
+            "challenge_count": 0,
+            "model_count": 0,
+            "running_count": 0,
         },
-        "challenges": DEMO_CHALLENGES,
-        "models": models,
-        "leaderboard": DEMO_LEADERBOARD,
+        "challenges": [],
+        "models": [],
+        "leaderboard": [],
         "matrix": {
-            "solved_cells": solved_cells,
-            "total_cells": len(DEMO_CHALLENGES) * len(models),
+            "solved_cells": 0,
+            "total_cells": 0,
         },
-        "recent_ctfs": recent_ctfs or DEMO_RECENT_CTFS,
+        "recent_ctfs": recent_ctfs,
         "admin_url": safe_url_for("admin.dashboard"),
     }
 
