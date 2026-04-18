@@ -83,7 +83,11 @@ def update_settings():
     solver_tool = request.form.get("solver_tool", "docker").strip()
     if solver_tool not in ("docker", "opencode"):
         solver_tool = "docker"
+    log_level = request.form.get("log_level", "DEBUG").strip().upper()
+    if log_level not in ("DEBUG", "INFO", "WARNING", "ERROR"):
+        log_level = "DEBUG"
     values = {
+        "log_level": log_level,
         "solver_tool": solver_tool,
         "solver_image": request.form.get("solver_image", "").strip(),
         "solver_network": request.form.get("solver_network", "").strip() or "bridge",
@@ -127,12 +131,14 @@ def update_settings():
         posted = request.form.get(key, "")
         values[key] = posted.strip() if posted.strip() else "__KEEP__"
     runtime_settings.update(values)
+    runtime_settings.apply_log_level()
     capture_admin_action(
         "settings.update",
         status="success",
         payload={
             "sentry_enabled": values["sentry_enabled"],
             "sentry_browser_enabled": values["sentry_browser_enabled"],
+            "log_level": values.get("log_level", "DEBUG"),
         },
     )
     flash("Runtime settings saved.", "success")
@@ -498,6 +504,27 @@ def upsert_account(ctf_id: int, model_id: int):
     )
     capture_admin_action("ctf.account.upsert", status="success", payload={"ctf_id": ctf_id, "model_id": model_id})
     flash("CTF account saved.", "success")
+    return redirect(url_for("admin.dashboard"))
+
+
+@bp.post("/competition-runs/<int:competition_run_id>/delete")
+@admin_required
+def delete_competition_run(competition_run_id: int):
+    db = get_db()
+    row = db.execute(
+        "SELECT id FROM competition_runs WHERE id = ?", (competition_run_id,)
+    ).fetchone()
+    if row is None:
+        flash("Competition run not found.", "error")
+        return redirect(url_for("admin.dashboard"))
+    db.execute("DELETE FROM competition_runs WHERE id = ?", (competition_run_id,))
+    db.commit()
+    capture_admin_action(
+        "competition_run.delete",
+        status="success",
+        payload={"competition_run_id": competition_run_id},
+    )
+    flash(f"Deleted competition run #{competition_run_id}.", "success")
     return redirect(url_for("admin.dashboard"))
 
 

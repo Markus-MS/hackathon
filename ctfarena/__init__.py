@@ -29,8 +29,8 @@ def should_auto_resume_competitions() -> bool:
 
 
 def _configure_logging() -> None:
-    log_level_name = os.environ.get("CTF_ARENA_LOG_LEVEL", "INFO").upper()
-    log_level = getattr(logging, log_level_name, logging.INFO)
+    log_level_name = os.environ.get("CTF_ARENA_LOG_LEVEL", "DEBUG").upper()
+    log_level = getattr(logging, log_level_name, logging.DEBUG)
     logging.basicConfig(
         level=log_level,
         format="%(asctime)s %(levelname)s %(name)s %(message)s",
@@ -55,7 +55,11 @@ def create_app(config_object: type[Config] = Config) -> Flask:
         f"ctfarena@{app.config['CTF_ARENA_COMMIT']}"
         f"+sandbox.{app.config['DEFAULT_SANDBOX_DIGEST'][-12:]}"
     )
+    from ctfarena.services import runtime_settings
+
     init_db(app)
+    with app.app_context():
+        runtime_settings.apply_log_level()
     init_sentry(
         app=app,
         component="web",

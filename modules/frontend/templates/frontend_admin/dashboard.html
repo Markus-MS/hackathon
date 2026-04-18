@@ -101,6 +101,14 @@
     </div>
     <form class="stack-form grid-form" method="post" action="{{ url_for('admin.update_settings') }}">
       <label>
+        <span>Log Level</span>
+        <select name="log_level">
+          {% for lvl in ("DEBUG", "INFO", "WARNING", "ERROR") %}
+            <option value="{{ lvl }}" {% if runtime_settings.get('log_level', 'DEBUG') == lvl %}selected{% endif %}>{{ lvl }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <label>
         <span>ChatGPT / OpenAI API Key{% if masked_settings.get('openai_api_key') %} · {{ masked_settings['openai_api_key'] }}{% endif %}</span>
         <input type="password" name="openai_api_key" value="{{ '__KEEP__' if masked_settings.get('openai_api_key') else '' }}" placeholder="Paste API key">
       </label>
@@ -448,6 +456,9 @@
                   </span>
                   <span class="pill pill-{{ run['status'] }}">{{ run["status"] }}</span>
                   <span>${{ "%.4f"|format(run["total_cost_usd"]) }} · {{ run["total_turns"] }} turns</span>
+                  <form method="post" action="{{ url_for('admin.delete_competition_run', competition_run_id=run['id']) }}" style="margin-left:auto" onclick="return confirm('Delete this competition run and all its challenge history?')">
+                    <button type="submit" class="danger-button compact-button">Delete</button>
+                  </form>
                 </summary>
                 <div class="table-wrap">
                   <table class="data-table compact-table">

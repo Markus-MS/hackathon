@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import os
 import sqlite3
 
@@ -21,6 +22,7 @@ SECRET_KEYS = {
 }
 
 DEFAULT_SETTINGS = {
+    "log_level": "DEBUG",
     "solver_tool": "docker",
     "solver_image": "ctfarena-solver:local",
     "solver_network": "bridge",
@@ -49,6 +51,7 @@ DEFAULT_SETTINGS = {
 }
 
 NON_EMPTY_SETTINGS = {
+    "log_level",
     "solver_tool",
     "solver_image",
     "solver_network",
@@ -148,3 +151,12 @@ def set_provider_api_key(provider: str, api_key: str) -> bool:
         return False
     set_setting(key_name, api_key.strip())
     return True
+
+
+def apply_log_level() -> None:
+    """Read log_level from the DB and apply it to the ctfarena logger hierarchy."""
+    level_name = (get_setting("log_level", DEFAULT_SETTINGS["log_level"]) or "DEBUG").upper()
+    level = getattr(logging, level_name, logging.DEBUG)
+    logging.getLogger("ctfarena").setLevel(level)
+    # Also propagate to root so basicConfig handlers pick it up
+    logging.getLogger().setLevel(min(level, logging.getLogger().level or logging.DEBUG))
