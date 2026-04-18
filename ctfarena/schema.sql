@@ -85,6 +85,19 @@ CREATE TABLE IF NOT EXISTS challenges (
     UNIQUE(ctf_event_id, remote_id)
 );
 
+CREATE TABLE IF NOT EXISTS challenge_files (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    challenge_id INTEGER NOT NULL REFERENCES challenges(id) ON DELETE CASCADE,
+    remote_ref TEXT NOT NULL,
+    download_url TEXT NOT NULL DEFAULT '',
+    display_name TEXT NOT NULL DEFAULT '',
+    storage_name TEXT NOT NULL DEFAULT '',
+    metadata_json TEXT NOT NULL DEFAULT '{}',
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    UNIQUE(challenge_id, remote_ref)
+);
+
 CREATE TABLE IF NOT EXISTS competition_runs (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     ctf_event_id INTEGER NOT NULL REFERENCES ctf_events(id) ON DELETE CASCADE,
@@ -139,6 +152,29 @@ CREATE TABLE IF NOT EXISTS challenge_runs (
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL,
     UNIQUE(competition_run_id, challenge_id)
+);
+
+CREATE TABLE IF NOT EXISTS challenge_run_activity (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    challenge_run_id INTEGER NOT NULL REFERENCES challenge_runs(id) ON DELETE CASCADE,
+    kind TEXT NOT NULL DEFAULT 'note',
+    content TEXT NOT NULL DEFAULT '',
+    details_json TEXT NOT NULL DEFAULT '{}',
+    created_at TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_challenge_run_activity_run_id
+    ON challenge_run_activity(challenge_run_id, id);
+
+CREATE TABLE IF NOT EXISTS challenge_run_artifacts (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    challenge_run_id INTEGER NOT NULL REFERENCES challenge_runs(id) ON DELETE CASCADE,
+    name TEXT NOT NULL,
+    content_type TEXT NOT NULL DEFAULT 'text/plain',
+    text_content TEXT NOT NULL DEFAULT '',
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    UNIQUE(challenge_run_id, name)
 );
 
 DROP VIEW IF EXISTS v_competition_scores;

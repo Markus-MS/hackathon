@@ -1,16 +1,16 @@
 {% extends "frontend_base.html" %}
-{% set show_ctf_nav = true %}
 
 {% block title %}{{ app_name }} Details{% endblock %}
 
 {% block content %}
-  <section class="details-panel">
+  <section class="panel details-panel">
     <p class="eyebrow">Details</p>
     <h1 id="title">Details</h1>
     <p class="subtitle" id="summary">Loading active CTF metadata...</p>
     <div class="meta" id="meta"></div>
     <div id="challenge-overview" class="challenge-overview-grid" hidden></div>
     <section id="terminal-grid" class="terminal-grid" hidden></section>
+    <a class="details-link" href="{{ url_for('frontend.index') }}">Back Home</a>
   </section>
 {% endblock %}
 
@@ -18,9 +18,9 @@
   <script>
     const challengeApiUrl = {{ challenge_api_url|tojson }};
     const detailsApiUrl = {{ details_api_url|tojson }};
-    const dashboardNavApiUrl = {{ url_for('frontend.api_dashboard')|tojson }};
     const rerunBaseUrl = {{ url_for('admin.rerun_challenge_run', challenge_run_id=0)|tojson }};
-    const terminalSockets = new Map();
+    const terminalControllers = new Map();
+    const terminalDoneStatuses = new Set(["solved", "failed", "timed_out", "crashed", "budget_exhausted"]);
 
     function setText(id, value) {
       const el = document.getElementById(id);
@@ -35,44 +35,6 @@
       meta.appendChild(card);
     }
 
-    function ctfUrl(ctfId) {
-      return `/ctfs/${encodeURIComponent(ctfId)}`;
-    }
-
-    function renderCtfNav(data) {
-      const nav = document.getElementById("ctf-nav-buttons");
-      if (!nav) return;
-      nav.replaceChildren();
-
-      const currentId = data.ctf ? Number(data.ctf.id) : null;
-      const seen = new Set();
-      const entries = [];
-      // Keep a deterministic order regardless of the currently selected CTF.
-      for (const item of (data.recent_ctfs || [])) {
-        const id = Number(item.id);
-        if (Number.isNaN(id) || seen.has(id)) continue;
-        entries.push({ id, title: item.title });
-        seen.add(id);
-      }
-      // Ensure active CTF still appears even if missing from recent list.
-      if (data.ctf && data.ctf.id != null && !seen.has(Number(data.ctf.id))) {
-        entries.push({ id: Number(data.ctf.id), title: data.ctf.title });
-        seen.add(Number(data.ctf.id));
-      }
-
-      for (const entry of entries) {
-        const link = document.createElement("a");
-        link.className = "ctf-switch-btn";
-        link.textContent = entry.title;
-        link.href = ctfUrl(entry.id);
-        if (currentId != null && entry.id === currentId) {
-          link.classList.add("is-active");
-          link.setAttribute("aria-current", "page");
-        }
-        nav.appendChild(link);
-      }
-    }
-
     function money(value) {
       return `$${Number(value || 0).toFixed(4)}`;
     }
@@ -80,6 +42,14 @@
     function seconds(value) {
       if (value == null) return "n/a";
       return `${Number(value).toFixed(1)}s`;
+    }
+
+    function terminalKey(row) {
+      return String(row.challenge_run_id || row.slug || row.model);
+    }
+
+    function isTerminalDone(status) {
+      return terminalDoneStatuses.has(String(status || ""));
     }
 
     function renderChallengeOverview(data) {
@@ -131,197 +101,248 @@
       }
     }
 
-    function createTerminalController(terminalEl) {
-      const renderQueue = [];
-      let renderActive = false;
-      let parkedPill = null;
+    function createActivityController(row, pane, streamState) {
+      let current = row;
+      let lastEventId = 0;
+      let eventSource = null;
+      let pollTimer = null;
+      let hasRenderedEvents = false;
+      let destroyed = false;
 
-      function scrollToBottom() {
-        terminalEl.scrollTop = terminalEl.scrollHeight;
+      function setStreamState(label, tone = "idle") {
+        streamState.textContent = label;
+        streamState.dataset.state = tone;
       }
 
-      function appendHtml(html, animate) {
-        terminalEl.insertAdjacentHTML("beforeend", html);
-        if (animate) {
-          const last = terminalEl.lastElementChild;
-          if (last) {
-            last.classList.add("reveal");
-          }
-        }
+      function scrollToBottom() {
+        pane.scrollTop = pane.scrollHeight;
+      }
+
+      function setPlaceholder(text) {
+        if (hasRenderedEvents) return;
+        pane.replaceChildren();
+        const line = document.createElement("div");
+        line.className = "terminal-line terminal-line-placeholder";
+        line.textContent = text || "Waiting for terminal activity…";
+        pane.appendChild(line);
         scrollToBottom();
       }
 
-      function stripWrapper(html) {
-        const match = html.match(/^<span class="([^"]*)">(.*)<\/span>$/s);
-        if (!match) {
-          return null;
-        }
-        return { className: match[1], innerHtml: match[2] };
+      function clearPane() {
+        hasRenderedEvents = false;
+        lastEventId = 0;
+        pane.replaceChildren();
       }
 
-      function enqueue(item) {
-        renderQueue.push(item);
-        if (!renderActive) {
-          drain();
+      function appendEvent(event) {
+        if (!event?.content) return;
+        if (!hasRenderedEvents) {
+          pane.replaceChildren();
+          hasRenderedEvents = true;
+        }
+        const line = document.createElement("div");
+        line.className = `terminal-line terminal-line-${event.kind || "note"}`;
+        line.textContent = event.content;
+        pane.appendChild(line);
+        lastEventId = Math.max(lastEventId, Number(event.id || 0));
+        scrollToBottom();
+      }
+
+      function stopStreaming() {
+        if (eventSource) {
+          eventSource.close();
+          eventSource = null;
+        }
+        if (pollTimer) {
+          clearInterval(pollTimer);
+          pollTimer = null;
         }
       }
 
-      function drain() {
-        if (!renderQueue.length) {
-          renderActive = false;
+      async function fetchActivity({ reset = false } = {}) {
+        if (!current.activity_api_url || destroyed) return;
+        const after = reset ? 0 : lastEventId;
+        const response = await fetch(`${current.activity_api_url}?after=${after}`, { cache: "no-store" });
+        if (!response.ok) {
+          throw new Error("Failed to load activity");
+        }
+        const payload = await response.json();
+        if (reset) {
+          clearPane();
+        }
+        for (const event of payload.events || []) {
+          appendEvent(event);
+        }
+        if (!hasRenderedEvents) {
+          setPlaceholder(current.terminal_text || "Waiting for terminal activity…");
+        }
+        if (payload.done) {
+          setStreamState("Replay", "done");
+          stopStreaming();
+        }
+        return payload;
+      }
+
+      function ensurePolling() {
+        if (pollTimer || destroyed || isTerminalDone(current.status)) return;
+        setStreamState("Polling", "live");
+        pollTimer = window.setInterval(() => {
+          fetchActivity().catch(() => {});
+        }, 1500);
+      }
+
+      function connectStream() {
+        if (!current.activity_stream_url || destroyed || isTerminalDone(current.status)) {
           return;
         }
-        renderActive = true;
-        const item = renderQueue.shift();
-        if (item.mode !== "type") {
-          appendHtml(item.html, !!item.animate);
-          drain();
+        if (typeof EventSource === "undefined") {
+          ensurePolling();
           return;
         }
-        const wrapped = stripWrapper(item.html);
-        if (!wrapped) {
-          appendHtml(item.html, false);
-          drain();
-          return;
-        }
-        const line = document.createElement("span");
-        line.className = wrapped.className;
-        const container = document.createElement("span");
-        container.className = "typing-cursor";
-        const textNode = document.createElement("span");
-        container.appendChild(textNode);
-        line.appendChild(container);
-
-        if (parkedPill) {
-          parkedPill.remove();
-          parkedPill = null;
-        }
-
-        let pill = null;
-        if (item.modelLabel) {
-          pill = document.createElement("span");
-          pill.className = "cursor-model-pill";
-          if (item.modelLabel === "claude") {
-            pill.classList.add("claude");
-          }
-          const label = document.createElement("span");
-          label.textContent = item.modelLabel;
-          pill.appendChild(label);
-          container.appendChild(pill);
-        }
-
-        const source = document.createElement("div");
-        source.innerHTML = wrapped.innerHtml;
-        const text = source.textContent || "";
-        let index = 0;
-        terminalEl.appendChild(line);
-
-        function tick() {
-          if (index >= text.length) {
-            container.classList.remove("typing-cursor");
-            textNode.textContent = text;
-            if (pill) {
-              parkedPill = pill;
-            }
-            scrollToBottom();
-            drain();
+        stopStreaming();
+        setStreamState("Live", "live");
+        eventSource = new EventSource(`${current.activity_stream_url}?after=${lastEventId}`);
+        eventSource.onmessage = (message) => {
+          let payload;
+          try {
+            payload = JSON.parse(message.data);
+          } catch {
             return;
           }
-          index += 1;
-          textNode.textContent = text.slice(0, index);
-          scrollToBottom();
-          window.setTimeout(tick, item.delayMs || 24);
-        }
-
-        tick();
-      }
-
-      return {
-        enqueue,
-        replaceText(text) {
-          terminalEl.textContent = text || "No terminal output yet.";
-        },
-        scrollToBottom,
-      };
-    }
-
-    function connectLiveTerminal(url, controller, onStatus) {
-      if (!url) {
-        return null;
-      }
-      let sawAppend = false;
-      const socket = new WebSocket(url);
-      socket.addEventListener("message", (event) => {
-        const payload = JSON.parse(event.data);
-        if (payload.type === "append") {
-          if (!sawAppend) {
-            controller.replaceText("");
-            sawAppend = true;
+          for (const event of payload.events || []) {
+            appendEvent(event);
           }
-          controller.enqueue({
-            html: payload.html,
-            mode: payload.animate_mode === "type" ? "type" : "append",
-            delayMs: payload.delay_ms || 32,
-            animate: !!payload.animate,
-            modelLabel: payload.model_label || "",
-          });
-        } else if (payload.type === "status" && onStatus) {
-          onStatus(payload);
+          if (!hasRenderedEvents) {
+            setPlaceholder(current.terminal_text || "Waiting for terminal activity…");
+          }
+          if (payload.done) {
+            setStreamState("Replay", "done");
+            stopStreaming();
+          }
+        };
+        eventSource.onerror = () => {
+          if (eventSource) {
+            eventSource.close();
+            eventSource = null;
+          }
+          if (!isTerminalDone(current.status)) {
+            ensurePolling();
+          }
+        };
+      }
+
+      async function bootstrap() {
+        setPlaceholder(current.terminal_text || "Waiting for terminal activity…");
+        if (!current.activity_api_url) {
+          setStreamState("Static", "idle");
+          return;
         }
+        try {
+          const payload = await fetchActivity({ reset: true });
+          if (!payload?.done) {
+            connectStream();
+          }
+        } catch {
+          ensurePolling();
+        }
+      }
+
+      function update(row) {
+        const wasDone = isTerminalDone(current.status);
+        current = row;
+        const nowDone = isTerminalDone(current.status);
+
+        if (wasDone && !nowDone) {
+          stopStreaming();
+          clearPane();
+          setPlaceholder(current.terminal_text || "Queued…");
+          bootstrap().catch(() => {});
+          return;
+        }
+
+        if (!hasRenderedEvents) {
+          setPlaceholder(current.terminal_text || "Waiting for terminal activity…");
+        }
+        if (nowDone) {
+          fetchActivity().catch(() => {});
+          setStreamState("Replay", "done");
+          stopStreaming();
+        } else if (!eventSource && !pollTimer) {
+          connectStream();
+        }
+      }
+
+      function destroy() {
+        destroyed = true;
+        stopStreaming();
+      }
+
+      bootstrap().catch(() => {
+        ensurePolling();
       });
-      return socket;
+
+      return { update, destroy };
     }
 
-    function renderChallengeTerminals(data) {
-      const grid = document.getElementById("terminal-grid");
-      for (const socket of terminalSockets.values()) {
-        socket.close();
-      }
-      terminalSockets.clear();
-      grid.replaceChildren();
-      grid.hidden = false;
+    function createTerminalCard(row) {
+      const card = document.createElement("article");
+      card.className = "terminal-card";
 
-      if (!data.models.length) {
-        const empty = document.createElement("p");
-        empty.className = "message";
-        empty.textContent = "No model runs found for this challenge.";
-        grid.appendChild(empty);
-        return;
-      }
+      const head = document.createElement("header");
+      head.className = "terminal-head";
 
-      for (const row of data.models) {
-        const card = document.createElement("article");
-        card.className = "terminal-card";
+      const model = document.createElement("span");
+      model.className = "terminal-model";
+      const dot = document.createElement("span");
+      dot.className = `dot status-${row.kind || "idle"}`;
+      if (row.color) dot.style.background = row.color;
+      const name = document.createElement("strong");
+      name.textContent = row.model;
+      model.append(dot, name);
 
-        const head = document.createElement("header");
-        head.className = "terminal-head";
-        const model = document.createElement("span");
-        model.className = "terminal-model";
-        const dot = document.createElement("span");
-        dot.className = `dot status-${row.kind || "idle"}`;
-        if (row.color) dot.style.background = row.color;
-        const name = document.createElement("strong");
-        name.textContent = row.model;
-        model.append(dot, name);
-        const status = document.createElement("span");
-        status.className = `pill pill-${row.status}`;
-        status.textContent = String(row.label || row.status).replaceAll("_", " ");
-        head.append(model, status);
+      const right = document.createElement("div");
+      right.className = "terminal-head-actions";
 
-        if (row.challenge_run_id) {
-          const rerunBtn = document.createElement("button");
-          rerunBtn.className = "rerun-btn";
+      const streamState = document.createElement("span");
+      streamState.className = "terminal-stream-state";
+      right.appendChild(streamState);
+
+      const status = document.createElement("span");
+      status.className = `pill pill-${row.status}`;
+      status.textContent = String(row.label || row.status).replaceAll("_", " ");
+      right.appendChild(status);
+
+      let rerunBtn = null;
+      function syncRerunButton(nextRow) {
+        if (nextRow.challenge_run_id && !["solved", "running", "queued"].includes(nextRow.status)) {
+          if (!rerunBtn) {
+            rerunBtn = document.createElement("button");
+            rerunBtn.className = "rerun-btn";
+            right.appendChild(rerunBtn);
+          }
+          rerunBtn.disabled = false;
           rerunBtn.textContent = "Rerun";
-          rerunBtn.title = `Rerun challenge for ${row.model}`;
-          rerunBtn.addEventListener("click", () => rerunChallenge(row.challenge_run_id, rerunBtn));
-          head.appendChild(rerunBtn);
+          rerunBtn.title = `Rerun challenge for ${nextRow.model}`;
+          rerunBtn.onclick = () => rerunChallenge(nextRow.challenge_run_id, rerunBtn);
+        } else if (rerunBtn) {
+          rerunBtn.remove();
+          rerunBtn = null;
         }
+      }
 
-        const meta = document.createElement("div");
-        meta.className = "terminal-meta";
+      head.append(model, right);
+
+      const meta = document.createElement("div");
+      meta.className = "terminal-meta";
+
+      function renderMeta(nextRow) {
+        meta.replaceChildren();
         const metrics = [
-          `Provider: ${row.provider || "n/a"}`,
-          `Solve Time: ${seconds(row.solve_time_seconds)}`,
+          `Provider: ${nextRow.provider || "n/a"}`,
+          `Cost: ${money(nextRow.cost_usd)}`,
+          `Attempts: ${nextRow.flag_attempts || 0}`,
+          `Turns: ${nextRow.turns || 0}`,
+          `Solve Time: ${seconds(nextRow.solve_time_seconds)}`,
         ];
         for (const metric of metrics) {
           const chip = document.createElement("span");
@@ -329,34 +350,79 @@
           chip.textContent = metric;
           meta.appendChild(chip);
         }
+      }
 
-        const pane = document.createElement("div");
-        pane.className = "terminal-pane";
-        const controller = createTerminalController(pane);
-        if (row.live_ws_url) {
-          controller.replaceText(row.terminal_text || "Waiting for live terminal output...");
-          const socket = connectLiveTerminal(row.live_ws_url, controller, (payload) => {
-            status.textContent = payload.status || status.textContent;
-            const metrics = payload.metrics || {};
-            meta.dataset.liveCommands = String(metrics.commands || 0);
-            meta.dataset.liveMessages = String(metrics.messages || 0);
-            let liveChip = meta.querySelector(".terminal-chip-live");
-            if (!liveChip) {
-              liveChip = document.createElement("span");
-              liveChip.className = "terminal-chip terminal-chip-live";
-              meta.appendChild(liveChip);
-            }
-            liveChip.textContent = `Live: ${payload.phase || "running"} · Cmd ${metrics.commands || 0} · Msg ${metrics.messages || 0}`;
-          });
-          if (socket && row.challenge_run_id) {
-            terminalSockets.set(row.challenge_run_id, socket);
-          }
-        } else {
-          controller.replaceText(row.terminal_text || "No terminal output yet.");
+      const pane = document.createElement("div");
+      pane.className = "terminal-pane";
+
+      const activity = createActivityController(row, pane, streamState);
+
+      function update(nextRow) {
+        status.className = `pill pill-${nextRow.status}`;
+        status.textContent = String(nextRow.label || nextRow.status).replaceAll("_", " ");
+        dot.className = `dot status-${nextRow.kind || "idle"}`;
+        if (nextRow.color) dot.style.background = nextRow.color;
+        name.textContent = nextRow.model;
+        renderMeta(nextRow);
+        syncRerunButton(nextRow);
+        activity.update(nextRow);
+      }
+
+      renderMeta(row);
+      syncRerunButton(row);
+      card.append(head, meta, pane);
+
+      return {
+        card,
+        update,
+        destroy() {
+          activity.destroy();
+        },
+      };
+    }
+
+    function renderChallengeTerminals(data) {
+      const grid = document.getElementById("terminal-grid");
+      grid.hidden = false;
+
+      if (!data.models.length) {
+        for (const controller of terminalControllers.values()) {
+          controller.destroy();
         }
+        terminalControllers.clear();
+        grid.replaceChildren();
+        const empty = document.createElement("p");
+        empty.className = "message";
+        empty.textContent = "No model runs found for this challenge.";
+        grid.appendChild(empty);
+        return;
+      }
 
-        card.append(head, meta, pane);
-        grid.appendChild(card);
+      const emptyState = grid.querySelector(".message");
+      if (emptyState) {
+        emptyState.remove();
+      }
+
+      const nextKeys = new Set();
+      for (const row of data.models) {
+        const key = terminalKey(row);
+        nextKeys.add(key);
+        let controller = terminalControllers.get(key);
+        if (!controller) {
+          controller = createTerminalCard(row);
+          terminalControllers.set(key, controller);
+          grid.appendChild(controller.card);
+        } else {
+          controller.update(row);
+          grid.appendChild(controller.card);
+        }
+      }
+
+      for (const [key, controller] of terminalControllers.entries()) {
+        if (nextKeys.has(key)) continue;
+        controller.destroy();
+        controller.card.remove();
+        terminalControllers.delete(key);
       }
     }
 
@@ -366,13 +432,6 @@
         throw new Error("Failed to fetch details");
       }
       const data = await response.json();
-      const navResponse = await fetch(dashboardNavApiUrl);
-      if (navResponse.ok) {
-        const navData = await navResponse.json();
-        renderCtfNav({ ctf: data.ctf, recent_ctfs: navData.recent_ctfs || [] });
-      } else {
-        renderCtfNav({ ctf: data.ctf, recent_ctfs: [] });
-      }
       document.getElementById("meta").replaceChildren();
       setText("title", data.challenge?.name || "Challenge");
       setText(
@@ -389,13 +448,6 @@
         throw new Error("Failed to fetch details");
       }
       const data = await response.json();
-      const navResponse = await fetch(dashboardNavApiUrl);
-      if (navResponse.ok) {
-        const navData = await navResponse.json();
-        renderCtfNav({ ctf: data.ctf, recent_ctfs: navData.recent_ctfs || [] });
-      } else {
-        renderCtfNav({ ctf: data.ctf, recent_ctfs: [] });
-      }
       const meta = document.getElementById("meta");
       meta.replaceChildren();
 
@@ -417,6 +469,9 @@
       loadChallengeDetails().catch((error) => {
         setText("summary", error.message);
       });
+      setInterval(() => {
+        loadChallengeDetails().catch(() => {});
+      }, 5000);
     } else {
       loadOverviewDetails().catch((error) => {
         setText("summary", error.message);

@@ -1305,10 +1305,40 @@ h4 {
   margin-bottom: 8px;
 }
 
+.terminal-head-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-left: auto;
+}
+
 .terminal-model {
   display: inline-flex;
   align-items: center;
   gap: 8px;
+}
+
+.terminal-stream-state {
+  display: inline-flex;
+  align-items: center;
+  border-radius: 999px;
+  padding: 0.2rem 0.55rem;
+  font-size: 0.74rem;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: #9ca3af;
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.terminal-stream-state[data-state="live"] {
+  color: #86efac;
+  background: rgba(34, 197, 94, 0.18);
+}
+
+.terminal-stream-state[data-state="done"] {
+  color: #bfdbfe;
+  background: rgba(59, 130, 246, 0.16);
 }
 
 .rerun-btn {
@@ -1371,6 +1401,48 @@ h4 {
   line-height: 1.45;
   white-space: pre-wrap;
   word-break: break-word;
+  display: grid;
+  gap: 0.35rem;
+}
+
+.terminal-line {
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.terminal-line-placeholder,
+.terminal-line-note {
+  color: #9ca3af;
+}
+
+.terminal-line-status {
+  color: #93c5fd;
+}
+
+.terminal-line-command {
+  color: #7dd3fc;
+}
+
+.terminal-line-output,
+.terminal-line-artifact {
+  color: #e5e7eb;
+}
+
+.terminal-line-assistant {
+  color: #f8fafc;
+}
+
+.terminal-line-warning {
+  color: #facc15;
+}
+
+.terminal-line-error,
+.terminal-line-stderr {
+  color: #fca5a5;
+}
+
+.terminal-line-candidate {
+  color: #86efac;
 }
 
 .terminal-pane .line {

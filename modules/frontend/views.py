@@ -1,11 +1,13 @@
 from __future__ import annotations
 
-from flask import request
-from flask import Blueprint, abort, current_app, jsonify, render_template, url_for
+import json
+import time
+
+from flask import Blueprint, Response, abort, current_app, jsonify, render_template, request, stream_with_context, url_for
 from werkzeug.routing import BuildError
 
-from ctfarena.db import get_db
-from ctfarena.services import ctf_service, leaderboard
+from ctfarena.db import connect_db, get_db
+from ctfarena.services import ctf_service, leaderboard, run_activity
 
 
 frontend_bp = Blueprint(
@@ -26,6 +28,7 @@ STATUS_KIND = {
     "budget_exhausted": "error",
     "timed_out": "error",
 }
+LIVE_CHALLENGE_STATUSES = {"queued", "running"}
 
 
 @frontend_bp.get("/")
@@ -106,6 +109,62 @@ def api_details():
 @frontend_bp.get("/api/ctfs/<int:ctf_id>/challenges/<int:challenge_id>/details")
 def api_challenge_details(ctf_id: int, challenge_id: int):
     return jsonify(build_challenge_details_payload(ctf_id=ctf_id, challenge_id=challenge_id))
+
+
+@frontend_bp.get("/api/challenge-runs/<int:challenge_run_id>/activity")
+def api_challenge_run_activity(challenge_run_id: int):
+    after_id = request.args.get("after", type=int) or 0
+    limit = min(400, max(1, request.args.get("limit", type=int) or 200))
+    return jsonify(
+        build_challenge_run_activity_payload(
+            challenge_run_id,
+            after_id=after_id,
+            limit=limit,
+        )
+    )
+
+
+@frontend_bp.get("/api/challenge-runs/<int:challenge_run_id>/activity/stream")
+def api_challenge_run_activity_stream(challenge_run_id: int):
+    after_id = request.args.get("after", type=int) or 0
+    limit = min(400, max(1, request.args.get("limit", type=int) or 200))
+
+    def generate():
+        db = connect_db(current_app.config["DATABASE_PATH"])
+        last_id = after_id
+        idle_polls = 0
+        try:
+            while True:
+                payload = _challenge_run_activity_payload_from_db(
+                    db,
+                    challenge_run_id,
+                    after_id=last_id,
+                    limit=limit,
+                )
+                if payload["events"]:
+                    last_id = payload["events"][-1]["id"]
+                    idle_polls = 0
+                    yield f"data: {json.dumps(payload)}\n\n"
+                    continue
+
+                idle_polls += 1
+                if payload["done"] and idle_polls >= 2:
+                    yield f"data: {json.dumps(payload)}\n\n"
+                    break
+
+                yield ": keep-alive\n\n"
+                time.sleep(1.0)
+        finally:
+            db.close()
+
+    return Response(
+        stream_with_context(generate()),
+        mimetype="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "X-Accel-Buffering": "no",
+        },
+    )
 
 
 @frontend_bp.get("/healthz")
@@ -231,12 +290,14 @@ def build_challenge_details_payload(*, ctf_id: int, challenge_id: int) -> dict[s
                     "kind": STATUS_KIND.get(status, "idle"),
                     "cost_usd": 0.0,
                     "flag_attempts": 0,
-                    "turns": 0,
-                    "solve_time_seconds": None,
-                    "updated_at": None,
-                    "terminal_text": "Demo mode: terminal stream is unavailable.",
-                }
-            )
+                "turns": 0,
+                "solve_time_seconds": None,
+                "updated_at": None,
+                "activity_api_url": None,
+                "activity_stream_url": None,
+                "terminal_text": "Demo mode: terminal stream is unavailable.",
+            }
+        )
         return {
             "ctf": {"id": 0, "title": "GlacierCTF", "status": "active"},
             "challenge": challenge,
@@ -306,8 +367,17 @@ def build_challenge_details_payload(*, ctf_id: int, challenge_id: int) -> dict[s
                 "turns": int(row["turns"] or 0),
                 "solve_time_seconds": row["solve_time_seconds"],
                 "updated_at": row["updated_at"],
+                "activity_api_url": (
+                    url_for("frontend.api_challenge_run_activity", challenge_run_id=row["challenge_run_id"])
+                    if row["challenge_run_id"]
+                    else None
+                ),
+                "activity_stream_url": (
+                    url_for("frontend.api_challenge_run_activity_stream", challenge_run_id=row["challenge_run_id"])
+                    if row["challenge_run_id"]
+                    else None
+                ),
                 "terminal_text": terminal_text,
-                "live_ws_url": build_live_ws_url(int(row["challenge_run_id"])) if row["challenge_run_id"] else None,
             }
         )
 
@@ -315,6 +385,66 @@ def build_challenge_details_payload(*, ctf_id: int, challenge_id: int) -> dict[s
         "ctf": serialize_ctf(ctf),
         "challenge": dict(challenge),
         "models": model_runs,
+    }
+
+
+def build_challenge_run_activity_payload(
+    challenge_run_id: int,
+    *,
+    after_id: int = 0,
+    limit: int = 200,
+) -> dict[str, object]:
+    db = get_db()
+    return _challenge_run_activity_payload_from_db(
+        db,
+        challenge_run_id,
+        after_id=after_id,
+        limit=limit,
+    )
+
+
+def _challenge_run_activity_payload_from_db(
+    db,
+    challenge_run_id: int,
+    *,
+    after_id: int,
+    limit: int,
+) -> dict[str, object]:
+    row = db.execute(
+        """
+        SELECT id, status, updated_at
+        FROM challenge_runs
+        WHERE id = ?
+        """,
+        (challenge_run_id,),
+    ).fetchone()
+    if row is None:
+        abort(404)
+
+    events = [
+        serialize_activity_event(item)
+        for item in run_activity.list_activity(
+            db,
+            challenge_run_id,
+            after_id=after_id,
+            limit=limit,
+        )
+    ]
+    return {
+        "challenge_run_id": challenge_run_id,
+        "status": row["status"],
+        "updated_at": row["updated_at"],
+        "done": str(row["status"]) not in LIVE_CHALLENGE_STATUSES,
+        "events": events,
+    }
+
+
+def serialize_activity_event(row) -> dict[str, object]:
+    return {
+        "id": row["id"],
+        "kind": row["kind"],
+        "content": row["content"],
+        "created_at": row["created_at"],
     }
 
 
@@ -347,8 +477,3 @@ def safe_url_for(endpoint: str, **values: object) -> str | None:
         return url_for(endpoint, **values)
     except BuildError:
         return None
-
-
-def build_live_ws_url(challenge_run_id: int) -> str:
-    scheme = "wss" if request.scheme == "https" else "ws"
-    return f"{scheme}://{request.host}/ws/challenge-runs/{challenge_run_id}"

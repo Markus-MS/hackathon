@@ -473,8 +473,17 @@ def sync_ctf(ctf_id: int):
         return redirect(url_for("admin.dashboard"))
 
     ctf_service.upsert_challenges(db, ctf_id=ctf_id, challenges=challenges)
-    capture_admin_action("ctf.sync", status="success", payload={"ctf_id": ctf_id, "challenge_count": len(challenges)})
-    flash(f"Synced {len(challenges)} challenges from CTFd.", "success")
+    file_count = sum(
+        len(challenge.get("files") or [])
+        for challenge in challenges
+        if isinstance(challenge, dict)
+    )
+    capture_admin_action(
+        "ctf.sync",
+        status="success",
+        payload={"ctf_id": ctf_id, "challenge_count": len(challenges), "file_count": file_count},
+    )
+    flash(f"Synced {len(challenges)} challenges and {file_count} file references from CTFd.", "success")
     return redirect(url_for("admin.dashboard"))
 
 
