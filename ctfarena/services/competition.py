@@ -4216,7 +4216,10 @@ class CompetitionManager:
                 return
 
             ctf = ctf_service.get_ctf(db, ctf_id)
+            if ctf is None:
+                raise ValueError(f"Unknown CTF #{ctf_id}.")
             challenges = ctf_service.list_challenges(db, ctf_id)
+            grace_seconds = runtime_settings.nonnegative_int("solver_grace_period_seconds")
 
             run_infos: dict[int, dict] = {}
             for run_id in active_run_ids:
@@ -4262,7 +4265,6 @@ class CompetitionManager:
                 )
                 metric_count("ctfarena.run.started", 1, tags={"provider": model["provider"]})
 
-        grace_seconds = runtime_settings.nonnegative_int("solver_grace_period_seconds")
         for challenge in challenges:
             with self.app.app_context():
                 db = get_db()
