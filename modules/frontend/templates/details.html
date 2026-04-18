@@ -22,10 +22,55 @@
     const canRerunChallenges = {{ (session.get('is_admin') or false)|tojson }};
     const terminalControllers = new Map();
     const terminalDoneStatuses = new Set(["solved", "failed", "timed_out", "crashed", "budget_exhausted"]);
+    const scrollStorageKey = `ctfarena-details-scroll:${window.location.pathname}`;
+    let hasLoadedChallengeDetails = false;
+    let scrollSaveTimer = null;
 
     function setText(id, value) {
       const el = document.getElementById(id);
       if (el) el.textContent = value;
+    }
+
+    function savePageScroll() {
+      try {
+        sessionStorage.setItem(scrollStorageKey, JSON.stringify({
+          x: window.scrollX,
+          y: window.scrollY,
+          at: Date.now(),
+        }));
+      } catch {
+        // Ignore storage errors; scroll preservation is best-effort.
+      }
+    }
+
+    function savePageScrollSoon() {
+      if (scrollSaveTimer) return;
+      scrollSaveTimer = window.setTimeout(() => {
+        scrollSaveTimer = null;
+        savePageScroll();
+      }, 150);
+    }
+
+    function restoreSavedPageScroll() {
+      let saved = null;
+      try {
+        saved = JSON.parse(sessionStorage.getItem(scrollStorageKey) || "null");
+      } catch {
+        saved = null;
+      }
+      if (!saved || Date.now() - Number(saved.at || 0) > 10 * 60 * 1000) return;
+      const x = Number(saved.x || 0);
+      const y = Number(saved.y || 0);
+      window.scrollTo(x, y);
+      requestAnimationFrame(() => window.scrollTo(x, y));
+    }
+
+    function preservePageScroll(render) {
+      const x = window.scrollX;
+      const y = window.scrollY;
+      render();
+      window.scrollTo(x, y);
+      requestAnimationFrame(() => window.scrollTo(x, y));
     }
 
     function addMeta(label, value) {
@@ -79,7 +124,7 @@
     }
 
     function terminalKey(row) {
-      return String(row.challenge_run_id || row.slug || row.model);
+      return String(row.competition_run_id || row.slug || row.model);
     }
 
     function isTerminalDone(status) {
@@ -174,6 +219,8 @@
 
       function appendEvent(event) {
         if (!event?.content) return;
+        const eventId = Number(event.id || 0);
+        if (eventId && eventId <= lastEventId) return;
         if (!hasRenderedEvents) {
           pane.replaceChildren();
           hasRenderedEvents = true;
@@ -182,7 +229,7 @@
         line.className = `terminal-line terminal-line-${event.kind || "note"}`;
         line.textContent = event.content;
         pane.appendChild(line);
-        lastEventId = Math.max(lastEventId, Number(event.id || 0));
+        lastEventId = Math.max(lastEventId, eventId);
         scrollToBottom();
       }
 
@@ -438,6 +485,7 @@
       }
 
       const nextKeys = new Set();
+      const orderedCards = [];
       for (const row of data.models) {
         const key = terminalKey(row);
         nextKeys.add(key);
@@ -445,11 +493,10 @@
         if (!controller) {
           controller = createTerminalCard(row);
           terminalControllers.set(key, controller);
-          grid.appendChild(controller.card);
         } else {
           controller.update(row);
-          grid.appendChild(controller.card);
         }
+        orderedCards.push(controller.card);
       }
 
       for (const [key, controller] of terminalControllers.entries()) {
@@ -458,6 +505,12 @@
         controller.card.remove();
         terminalControllers.delete(key);
       }
+
+      orderedCards.forEach((card, index) => {
+        if (grid.children[index] !== card) {
+          grid.insertBefore(card, grid.children[index] || null);
+        }
+      });
     }
 
     async function loadChallengeDetails() {
@@ -466,14 +519,23 @@
         throw new Error("Failed to fetch details");
       }
       const data = await response.json();
-      document.getElementById("meta").replaceChildren();
-      setText("title", data.challenge?.name || "Challenge");
-      setText(
-        "summary",
-        `${data.ctf?.title || "CTF"} · ${data.challenge?.difficulty || "unknown"} · ${data.challenge?.category || "misc"}`
-      );
-      renderChallengeOverview(data);
-      renderChallengeTerminals(data);
+      const render = () => {
+        document.getElementById("meta").replaceChildren();
+        setText("title", data.challenge?.name || "Challenge");
+        setText(
+          "summary",
+          `${data.ctf?.title || "CTF"} · ${data.challenge?.difficulty || "unknown"} · ${data.challenge?.category || "misc"}`
+        );
+        renderChallengeOverview(data);
+        renderChallengeTerminals(data);
+      };
+      if (hasLoadedChallengeDetails) {
+        preservePageScroll(render);
+      } else {
+        render();
+        hasLoadedChallengeDetails = true;
+        restoreSavedPageScroll();
+      }
     }
 
     async function loadOverviewDetails() {
@@ -508,6 +570,8 @@
     }
 
     if (challengeApiUrl) {
+      window.addEventListener("scroll", savePageScrollSoon, { passive: true });
+      window.addEventListener("pagehide", savePageScroll);
       loadHeaderNav().catch(() => {});
       loadChallengeDetails().catch((error) => {
         setText("summary", error.message);

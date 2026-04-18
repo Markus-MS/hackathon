@@ -974,6 +974,55 @@ def _clean_candidate(value: object) -> str:
     return candidate.strip()
 
 
+PLACEHOLDER_FLAG_BODIES = {
+    "",
+    "...",
+    ".*",
+    ".*?",
+    "answer",
+    "content",
+    "example",
+    "flag",
+    "flag_here",
+    "here",
+    "placeholder",
+    "redacted",
+    "sample",
+    "string",
+    "test",
+    "text",
+    "value",
+    "your_flag",
+}
+
+
+def _is_plausible_flag_candidate(candidate: str) -> bool:
+    if not candidate or len(candidate) > 240:
+        return False
+    if candidate.lower().startswith(("http://", "https://")):
+        return False
+    if candidate.count("{") != 1 or candidate.count("}") != 1:
+        return False
+    if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,63}\{[^{}\n]{1,200}\}", candidate):
+        return False
+    prefix, rest = candidate.split("{", 1)
+    body, suffix = rest.split("}", 1)
+    if suffix.strip():
+        return False
+    prefix = prefix.strip()
+    body = body.strip()
+    if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,63}", prefix):
+        return False
+    if not body or len(body) > 200:
+        return False
+    normalized_body = body.lower().strip().strip("<>[]() ")
+    if normalized_body in PLACEHOLDER_FLAG_BODIES:
+        return False
+    if any(token in body for token in (".*", "...", "[^", "\\", "<", ">")):
+        return False
+    return True
+
+
 def _extract_candidates_from_text(text: str, flag_regex: str) -> list[str]:
     candidates: list[str] = []
     matched_spans: list[tuple[int, int]] = []
@@ -983,7 +1032,9 @@ def _extract_candidates_from_text(text: str, flag_regex: str) -> list[str]:
         pattern = re.compile(r"[A-Za-z0-9_.-]+\{[^{}\n]{1,200}\}")
 
     for match in pattern.finditer(text):
-        candidates.append(_clean_candidate(match.group(0)))
+        candidate = _clean_candidate(match.group(0))
+        if _is_plausible_flag_candidate(candidate):
+            candidates.append(candidate)
         matched_spans.append(match.span())
 
     offset = 0
@@ -998,13 +1049,7 @@ def _extract_candidates_from_text(text: str, flag_regex: str) -> list[str]:
             continue
         if candidate in candidates:
             continue
-        prefix = candidate.split("{", 1)[0].strip()
-        if (
-            "{" in candidate
-            and "}" in candidate
-            and re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,63}", prefix)
-            and not candidate.lower().startswith(("http://", "https://"))
-        ):
+        if _is_plausible_flag_candidate(candidate):
             candidates.append(candidate)
     return candidates
 
@@ -1014,9 +1059,7 @@ def _extract_candidates_from_value(value: object, flag_regex: str) -> list[str]:
     if extracted:
         return extracted
     candidate = _clean_candidate(value)
-    if not candidate or len(candidate) > 240:
-        return []
-    if "{" not in candidate or "}" not in candidate:
+    if not _is_plausible_flag_candidate(candidate):
         return []
     return [candidate]
 
@@ -1402,7 +1445,11 @@ class OpencodeActivityCollector:
 
     def _record_candidate(self, candidate: str) -> None:
         cleaned = _clean_candidate(candidate)
-        if not cleaned or cleaned in self.flag_candidates:
+        if (
+            not cleaned
+            or not _is_plausible_flag_candidate(cleaned)
+            or cleaned in self.flag_candidates
+        ):
             return
         self.flag_candidates.append(cleaned)
         self._record_display("candidate", "Candidate flag detected.", details={"candidate": cleaned})
