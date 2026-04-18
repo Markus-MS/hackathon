@@ -48,7 +48,34 @@ def ctf_detail(ctf_id: int):
 
 @frontend_bp.get("/details")
 def details():
-    return render_template("details.html")
+    return render_template(
+        "details.html",
+        challenge_api_url=None,
+        details_api_url=url_for("frontend.api_details"),
+    )
+
+
+@frontend_bp.get("/ctfs/<int:ctf_id>/challenges/<int:challenge_id>/details")
+def challenge_details(ctf_id: int, challenge_id: int):
+    db = get_db()
+    ctf = ctf_service.get_ctf(db, ctf_id)
+    if ctf is None:
+        abort(404)
+    challenge = db.execute(
+        """
+        SELECT id, name
+        FROM challenges
+        WHERE id = ? AND ctf_event_id = ?
+        """,
+        (challenge_id, ctf_id),
+    ).fetchone()
+    if challenge is None:
+        abort(404)
+    return render_template(
+        "details.html",
+        challenge_api_url=url_for("frontend.api_challenge_details", ctf_id=ctf_id, challenge_id=challenge_id),
+        details_api_url=url_for("frontend.api_details"),
+    )
 
 
 @frontend_bp.get("/api/dashboard")
@@ -73,6 +100,11 @@ def api_details():
             "overview": leaderboard.build_ctf_overview(db, ctf["id"]),
         }
     )
+
+
+@frontend_bp.get("/api/ctfs/<int:ctf_id>/challenges/<int:challenge_id>/details")
+def api_challenge_details(ctf_id: int, challenge_id: int):
+    return jsonify(build_challenge_details_payload(ctf_id=ctf_id, challenge_id=challenge_id))
 
 
 @frontend_bp.get("/healthz")
@@ -174,6 +206,109 @@ def build_empty_dashboard_payload(recent_ctfs: list[dict[str, object]]) -> dict[
         },
         "recent_ctfs": recent_ctfs,
         "admin_url": safe_url_for("admin.dashboard"),
+    }
+
+
+def build_challenge_details_payload(*, ctf_id: int, challenge_id: int) -> dict[str, object]:
+    if "DATABASE_PATH" not in current_app.config:
+        challenge = next((item for item in DEMO_CHALLENGES if int(item["id"]) == challenge_id), None)
+        if challenge is None:
+            abort(404)
+        model_runs = []
+        challenge_index = next((i for i, row in enumerate(DEMO_CHALLENGES) if int(row["id"]) == challenge_id), 0)
+        for model in DEMO_MODELS:
+            cell = model["cells"][challenge_index]
+            status = str(cell["status"])
+            model_runs.append(
+                {
+                    "model": model["name"],
+                    "slug": model["slug"],
+                    "provider": "OpenAI",
+                    "color": model["color"],
+                    "status": status,
+                    "label": status.replace("_", " "),
+                    "kind": STATUS_KIND.get(status, "idle"),
+                    "cost_usd": 0.0,
+                    "flag_attempts": 0,
+                    "turns": 0,
+                    "solve_time_seconds": None,
+                    "updated_at": None,
+                    "terminal_text": "Demo mode: terminal stream is unavailable.",
+                }
+            )
+        return {
+            "ctf": {"id": 0, "title": "GlacierCTF", "status": "active"},
+            "challenge": challenge,
+            "models": model_runs,
+        }
+
+    db = get_db()
+    ctf = ctf_service.get_ctf(db, ctf_id)
+    if ctf is None:
+        abort(404)
+    challenge = db.execute(
+        """
+        SELECT id, name, category, points, difficulty
+        FROM challenges
+        WHERE id = ? AND ctf_event_id = ?
+        """,
+        (challenge_id, ctf_id),
+    ).fetchone()
+    if challenge is None:
+        abort(404)
+
+    rows = db.execute(
+        """
+        SELECT
+            mp.display_name,
+            mp.slug,
+            mp.provider,
+            mp.color,
+            chr.status,
+            chr.cost_usd,
+            chr.flag_attempts,
+            chr.turns,
+            chr.solve_time_seconds,
+            chr.updated_at,
+            chr.transcript_excerpt,
+            chr.error_message
+        FROM competition_runs cr
+        JOIN model_profiles mp ON mp.id = cr.model_id
+        LEFT JOIN challenge_runs chr ON chr.competition_run_id = cr.id AND chr.challenge_id = ?
+        WHERE cr.ctf_event_id = ?
+        ORDER BY mp.display_name
+        """,
+        (challenge_id, ctf_id),
+    ).fetchall()
+
+    model_runs = []
+    for row in rows:
+        status = str(row["status"] or "queued")
+        transcript = str(row["transcript_excerpt"] or "").strip()
+        error_message = str(row["error_message"] or "").strip()
+        terminal_text = transcript or error_message or "No terminal output yet."
+        model_runs.append(
+            {
+                "model": row["display_name"],
+                "slug": row["slug"],
+                "provider": row["provider"],
+                "color": row["color"],
+                "status": status,
+                "label": status.replace("_", " "),
+                "kind": STATUS_KIND.get(status, "idle"),
+                "cost_usd": float(row["cost_usd"] or 0),
+                "flag_attempts": int(row["flag_attempts"] or 0),
+                "turns": int(row["turns"] or 0),
+                "solve_time_seconds": row["solve_time_seconds"],
+                "updated_at": row["updated_at"],
+                "terminal_text": terminal_text,
+            }
+        )
+
+    return {
+        "ctf": serialize_ctf(ctf),
+        "challenge": dict(challenge),
+        "models": model_runs,
     }
 
 

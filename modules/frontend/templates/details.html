@@ -8,12 +8,22 @@
     <h1 id="title">Details</h1>
     <p class="subtitle" id="summary">Loading active CTF metadata...</p>
     <div class="meta" id="meta"></div>
+    <div id="challenge-overview" class="challenge-overview-grid" hidden></div>
+    <section id="terminal-grid" class="terminal-grid" hidden></section>
     <a class="details-link" href="{{ url_for('frontend.index') }}">Back Home</a>
   </section>
 {% endblock %}
 
 {% block scripts %}
   <script>
+    const challengeApiUrl = {{ challenge_api_url|tojson }};
+    const detailsApiUrl = {{ details_api_url|tojson }};
+
+    function setText(id, value) {
+      const el = document.getElementById(id);
+      if (el) el.textContent = value;
+    }
+
     function addMeta(label, value) {
       const meta = document.getElementById("meta");
       const card = document.createElement("div");
@@ -22,8 +32,119 @@
       meta.appendChild(card);
     }
 
-    async function loadDetails() {
-      const response = await fetch("{{ url_for('frontend.api_details') }}");
+    function money(value) {
+      return `$${Number(value || 0).toFixed(4)}`;
+    }
+
+    function seconds(value) {
+      if (value == null) return "n/a";
+      return `${Number(value).toFixed(1)}s`;
+    }
+
+    function renderChallengeOverview(data) {
+      const wrap = document.getElementById("challenge-overview");
+      wrap.replaceChildren();
+      wrap.hidden = false;
+
+      const total = data.models.length;
+      const solved = data.models.filter((item) => item.status === "solved").length;
+      const trying = data.models.filter((item) => item.status === "running").length;
+
+      const cards = [
+        ["CTF", data.ctf?.title || "unknown"],
+        ["Category", data.challenge?.category || "n/a"],
+        ["Points", data.challenge?.points ?? "n/a"],
+        ["Solved Models", `${solved}/${total}`],
+        ["Active Models", trying],
+      ];
+
+      for (const [label, value] of cards) {
+        const card = document.createElement("article");
+        card.className = "challenge-overview-card";
+        const labelEl = document.createElement("span");
+        labelEl.textContent = label;
+        const valueEl = document.createElement("strong");
+        valueEl.textContent = String(value);
+        card.append(labelEl, valueEl);
+        wrap.appendChild(card);
+      }
+    }
+
+    function renderChallengeTerminals(data) {
+      const grid = document.getElementById("terminal-grid");
+      grid.replaceChildren();
+      grid.hidden = false;
+
+      if (!data.models.length) {
+        const empty = document.createElement("p");
+        empty.className = "message";
+        empty.textContent = "No model runs found for this challenge.";
+        grid.appendChild(empty);
+        return;
+      }
+
+      for (const row of data.models) {
+        const card = document.createElement("article");
+        card.className = "terminal-card";
+
+        const head = document.createElement("header");
+        head.className = "terminal-head";
+        const model = document.createElement("span");
+        model.className = "terminal-model";
+        const dot = document.createElement("span");
+        dot.className = `dot status-${row.kind || "idle"}`;
+        if (row.color) dot.style.background = row.color;
+        const name = document.createElement("strong");
+        name.textContent = row.model;
+        model.append(dot, name);
+        const status = document.createElement("span");
+        status.className = `pill pill-${row.status}`;
+        status.textContent = String(row.label || row.status).replaceAll("_", " ");
+        head.append(model, status);
+
+        const meta = document.createElement("div");
+        meta.className = "terminal-meta";
+        const metrics = [
+          `Provider: ${row.provider || "n/a"}`,
+          `Cost: ${money(row.cost_usd)}`,
+          `Attempts: ${row.flag_attempts || 0}`,
+          `Turns: ${row.turns || 0}`,
+          `Solve Time: ${seconds(row.solve_time_seconds)}`,
+        ];
+        for (const metric of metrics) {
+          const chip = document.createElement("span");
+          chip.className = "terminal-chip";
+          chip.textContent = metric;
+          meta.appendChild(chip);
+        }
+
+        const pane = document.createElement("pre");
+        pane.className = "terminal-pane";
+        pane.textContent = row.terminal_text || "No terminal output yet.";
+
+        card.append(head, meta, pane);
+        grid.appendChild(card);
+      }
+    }
+
+    async function loadChallengeDetails() {
+      const response = await fetch(challengeApiUrl, { cache: "no-store" });
+      if (!response.ok) {
+        throw new Error("Failed to fetch details");
+      }
+      const data = await response.json();
+      document.getElementById("meta").replaceChildren();
+      setText("title", data.challenge?.name || "Challenge");
+      setText(
+        "summary",
+        `${data.ctf?.title || "CTF"} · ${data.challenge?.difficulty || "unknown"} · ${data.challenge?.category || "misc"}`
+      );
+      renderChallengeOverview(data);
+      renderChallengeTerminals(data);
+    }
+
+    async function loadOverviewDetails() {
+      const response = await fetch(detailsApiUrl);
       if (!response.ok) {
         throw new Error("Failed to fetch details");
       }
@@ -32,21 +153,30 @@
       meta.replaceChildren();
 
       if (!data.ctf) {
-        document.getElementById("title").textContent = "No Active Week";
-        document.getElementById("summary").textContent = data.summary;
+        setText("title", "No Active Week");
+        setText("summary", data.summary);
         return;
       }
 
-      document.getElementById("title").textContent = data.ctf.title;
-      document.getElementById("summary").textContent = `${data.ctf.status} · ${data.ctf.ctfd_url}`;
+      setText("title", data.ctf.title);
+      setText("summary", `${data.ctf.status} · ${data.ctf.ctfd_url}`);
       addMeta("Challenges", data.overview.challenge_count);
       addMeta("Model runs", data.overview.model_count);
       addMeta("Runs active", data.overview.running_count);
       addMeta("Sandbox", data.ctf.sandbox_digest.slice(-16));
     }
 
-    loadDetails().catch((error) => {
-      document.getElementById("summary").textContent = error.message;
-    });
+    if (challengeApiUrl) {
+      loadChallengeDetails().catch((error) => {
+        setText("summary", error.message);
+      });
+      setInterval(() => {
+        loadChallengeDetails().catch(() => {});
+      }, 5000);
+    } else {
+      loadOverviewDetails().catch((error) => {
+        setText("summary", error.message);
+      });
+    }
   </script>
 {% endblock %}

@@ -133,6 +133,10 @@
       parent.appendChild(document.createTextNode(text));
     }
 
+    function challengeDetailsUrl(ctfId, challengeId) {
+      return `/ctfs/${encodeURIComponent(ctfId)}/challenges/${encodeURIComponent(challengeId)}/details`;
+    }
+
     function money(value) {
       return `$${Number(value || 0).toFixed(4)}`;
     }
@@ -165,6 +169,9 @@
         canvas.replaceWith(document.createTextNode(values.reduce((sum, value) => sum + value, 0)));
         return;
       }
+      const displayLabels = labels.map((label) => (
+        label.length > 14 ? `${label.slice(0, 13)}…` : label
+      ));
 
       const existing = summaryCharts.get(id);
       if (existing) {
@@ -174,7 +181,7 @@
       const chart = new window.Chart(canvas, {
         type: "pie",
         data: {
-          labels,
+          labels: displayLabels,
           datasets: [
             {
               data: values,
@@ -187,30 +194,17 @@
         options: {
           responsive: false,
           maintainAspectRatio: false,
-          circumference: 180,
-          rotation: -90,
           animation: false,
           plugins: {
             legend: {
-              display: true,
-              position: "bottom",
-              labels: {
-                boxWidth: 10,
-                boxHeight: 10,
-                color: "#6d7480",
-                font: {
-                  family: "Inter",
-                  size: 11,
-                  weight: "600",
-                },
-                padding: 10,
-              },
+              display: false,
             },
             tooltip: {
               enabled: true,
               callbacks: {
                 label(context) {
-                  return `${context.label}: ${context.parsed}`;
+                  const fullLabel = labels[context.dataIndex] || context.label;
+                  return `${fullLabel}: ${context.parsed}`;
                 },
               },
             },
@@ -310,7 +304,17 @@
 
       for (const challenge of data.challenges) {
         const th = document.createElement("th");
-        th.textContent = challenge.name;
+        if (data.ctf && challenge.id != null) {
+          const link = document.createElement("a");
+          link.className = "challenge-link";
+          link.href = challengeDetailsUrl(data.ctf.id, challenge.id);
+          link.target = "_blank";
+          link.rel = "noopener noreferrer";
+          link.textContent = challenge.name;
+          th.appendChild(link);
+        } else {
+          th.textContent = challenge.name;
+        }
         th.title = `${challenge.category} · ${challenge.points} pts · ${challenge.difficulty}`;
         headRow.appendChild(th);
       }
