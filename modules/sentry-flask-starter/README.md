@@ -2,7 +2,7 @@
 
 This module is a sample app for exploring Sentry features before integrating them into a real web application.
 
-The code in [server.py](/home/ecomaikgolf/ctf/hackathon/modules/sentry-flask-starter/server.py) is intentionally demo-heavy. It is useful for learning what Sentry can capture, but it is not a production blueprint as-is.
+The code in [server.py](server.py) is intentionally demo-heavy. It is useful for learning what Sentry can capture, but it is not a production blueprint as-is.
 
 ## Goals
 
