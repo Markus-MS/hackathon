@@ -20,6 +20,7 @@ DEFAULT_SETTINGS = {
     "solver_max_turns": "8",
     "solver_command_timeout_seconds": "20",
     "solver_llm_timeout_seconds": "90",
+    "solver_grace_period_seconds": "300",
     "solver_extra_env": "",
     "openai_api_key": "",
     "anthropic_api_key": "",
@@ -34,6 +35,7 @@ NON_EMPTY_SETTINGS = {
     "solver_max_turns",
     "solver_command_timeout_seconds",
     "solver_llm_timeout_seconds",
+    "solver_grace_period_seconds",
 }
 
 PROVIDER_KEY_SETTING = {

@@ -16,6 +16,8 @@ def get_db() -> sqlite3.Connection:
         connection = sqlite3.connect(current_app.config["DATABASE_PATH"])
         connection.row_factory = sqlite3.Row
         connection.execute("PRAGMA foreign_keys = ON")
+        connection.execute("PRAGMA journal_mode = WAL")
+        connection.execute("PRAGMA busy_timeout = 10000")
         g.db = connection
     return g.db
 

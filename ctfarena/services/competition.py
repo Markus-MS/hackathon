@@ -7,6 +7,8 @@ import re
 import subprocess
 import tempfile
 import threading
+import time
+import uuid
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -417,7 +419,16 @@ class SolverResult:
 
 
 class DockerSolverBackend:
-    def execute(self, *, ctf, model, challenge, account, competition_run) -> SolverResult:
+    def execute(
+        self,
+        *,
+        ctf,
+        model,
+        challenge,
+        account,
+        competition_run,
+        stop_event: threading.Event | None = None,
+    ) -> SolverResult:
         settings = runtime_settings.get_all()
         api_key = runtime_settings.provider_api_key(model["provider"])
         if not api_key:
@@ -512,6 +523,8 @@ class DockerSolverBackend:
             + 20,
         )
 
+        container_name = f"ctfarena-{uuid.uuid4().hex[:12]}"
+
         with tempfile.TemporaryDirectory(prefix="ctfarena-solver-") as tmp:
             tmp_path = Path(tmp)
             (tmp_path / "manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
@@ -522,6 +535,8 @@ class DockerSolverBackend:
                 "docker",
                 "run",
                 "--rm",
+                "--name",
+                container_name,
                 "--network",
                 settings["solver_network"],
                 "--cpus",
@@ -539,30 +554,80 @@ class DockerSolverBackend:
                 "/workspace/manifest.json",
             ]
 
-            try:
-                completed = subprocess.run(
-                    command,
-                    env=env,
-                    text=True,
-                    capture_output=True,
-                    timeout=timeout_seconds,
-                )
-            except subprocess.TimeoutExpired as exc:
-                return SolverResult(
-                    status="timed_out",
-                    input_tokens=0,
-                    output_tokens=0,
-                    reasoning_tokens=0,
-                    cached_input_tokens=0,
-                    flag_attempts=0,
-                    turns=0,
-                    solve_time_seconds=None,
-                    transcript_excerpt=(exc.stdout or "")[-4000:],
-                    flag_candidates=[],
-                    error_message="Docker solver exceeded its wall-clock timeout.",
-                )
+            proc = subprocess.Popen(
+                command,
+                env=env,
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+            )
 
-        if completed.returncode != 0:
+            # Drain stdout/stderr in background threads to avoid pipe buffer deadlocks
+            stdout_buf: list[str] = []
+            stderr_buf: list[str] = []
+
+            def _drain_stdout() -> None:
+                assert proc.stdout is not None
+                stdout_buf.append(proc.stdout.read())
+
+            def _drain_stderr() -> None:
+                assert proc.stderr is not None
+                stderr_buf.append(proc.stderr.read())
+
+            t_out = threading.Thread(target=_drain_stdout, daemon=True)
+            t_err = threading.Thread(target=_drain_stderr, daemon=True)
+            t_out.start()
+            t_err.start()
+
+            deadline = time.monotonic() + timeout_seconds
+            stop_reason: str | None = None
+            while proc.poll() is None:
+                if time.monotonic() > deadline:
+                    stop_reason = "wall_clock"
+                    subprocess.run(["docker", "kill", container_name], capture_output=True)
+                    break
+                if stop_event is not None and stop_event.is_set():
+                    stop_reason = "grace_period"
+                    subprocess.run(["docker", "kill", container_name], capture_output=True)
+                    break
+                time.sleep(2)
+
+            t_out.join(timeout=15)
+            t_err.join(timeout=15)
+            stdout = "".join(stdout_buf)
+            stderr = "".join(stderr_buf)
+            proc.wait()
+
+        if stop_reason == "wall_clock":
+            return SolverResult(
+                status="timed_out",
+                input_tokens=0,
+                output_tokens=0,
+                reasoning_tokens=0,
+                cached_input_tokens=0,
+                flag_attempts=0,
+                turns=0,
+                solve_time_seconds=None,
+                transcript_excerpt=stdout[-4000:],
+                flag_candidates=[],
+                error_message="Docker solver exceeded its wall-clock timeout.",
+            )
+        if stop_reason == "grace_period":
+            return SolverResult(
+                status="timed_out",
+                input_tokens=0,
+                output_tokens=0,
+                reasoning_tokens=0,
+                cached_input_tokens=0,
+                flag_attempts=0,
+                turns=0,
+                solve_time_seconds=None,
+                transcript_excerpt=stdout[-4000:],
+                flag_candidates=[],
+                error_message="Challenge stopped: another model solved it and the grace period expired.",
+            )
+
+        if proc.returncode != 0:
             return SolverResult(
                 status="crashed",
                 input_tokens=0,
@@ -572,13 +637,13 @@ class DockerSolverBackend:
                 flag_attempts=0,
                 turns=0,
                 solve_time_seconds=None,
-                transcript_excerpt=(completed.stdout or "")[-4000:],
+                transcript_excerpt=stdout[-4000:],
                 flag_candidates=[],
-                error_message=(completed.stderr or completed.stdout)[-4000:],
+                error_message=(stderr or stdout)[-4000:],
             )
 
         try:
-            payload = json.loads(completed.stdout.strip().splitlines()[-1])
+            payload = json.loads(stdout.strip().splitlines()[-1])
         except (IndexError, json.JSONDecodeError) as exc:
             return SolverResult(
                 status="crashed",
@@ -589,7 +654,7 @@ class DockerSolverBackend:
                 flag_attempts=0,
                 turns=0,
                 solve_time_seconds=None,
-                transcript_excerpt=(completed.stdout or "")[-4000:],
+                transcript_excerpt=stdout[-4000:],
                 flag_candidates=[],
                 error_message=f"Docker solver returned invalid JSON: {exc}",
             )
@@ -1076,6 +1141,7 @@ class CompetitionManager:
         self._lock = threading.Lock()
         self._parallel_condition = threading.Condition()
         self._active_parallel_runs = 0
+        # Keyed by ctf_id — one coordinator future per active CTF
         self._futures: dict[int, concurrent.futures.Future[None]] = {}
         self.backend = DockerSolverBackend()
 
@@ -1084,20 +1150,28 @@ class CompetitionManager:
             db = get_db()
             rows = db.execute(
                 """
-                SELECT id
+                SELECT ctf_event_id, id
                 FROM competition_runs
                 WHERE mode = 'competition' AND status != 'completed'
                 ORDER BY datetime(updated_at), id
                 """
             ).fetchall()
-            run_ids = [int(row["id"]) for row in rows]
+
+        # Group incomplete runs by CTF
+        ctf_runs: dict[int, list[int]] = {}
+        for row in rows:
+            ctf_runs.setdefault(int(row["ctf_event_id"]), []).append(int(row["id"]))
+
+        all_run_ids = [rid for ids in ctf_runs.values() for rid in ids]
 
         if synchronous:
-            for run_id in run_ids:
-                self._run_single(run_id)
-            return run_ids
+            for ctf_id, run_ids in ctf_runs.items():
+                self._run_ctf(ctf_id, run_ids)
+            return all_run_ids
 
-        return self._submit_runs(run_ids)
+        for ctf_id, run_ids in ctf_runs.items():
+            self._submit_ctf(ctf_id, run_ids)
+        return all_run_ids
 
     def start_ctf(self, ctf_id: int, *, synchronous: bool = False) -> list[int]:
         with self.app.app_context():
@@ -1105,26 +1179,22 @@ class CompetitionManager:
             run_ids = create_competition_runs(db, ctf_id)
 
         if synchronous:
-            for run_id in run_ids:
-                self._run_single(run_id)
+            self._run_ctf(ctf_id, run_ids)
             return run_ids
 
-        self._submit_runs(run_ids)
+        self._submit_ctf(ctf_id, run_ids)
         return run_ids
 
-    def _submit_runs(self, run_ids: list[int]) -> list[int]:
-        submitted_ids: list[int] = []
+    def _submit_ctf(self, ctf_id: int, run_ids: list[int]) -> None:
         with self._lock:
-            for run_id in run_ids:
-                future = self._futures.get(run_id)
-                if future is not None and not future.done():
-                    continue
-                self._futures[run_id] = self.executor.submit(
-                    self._run_with_parallel_limit,
-                    run_id,
-                )
-                submitted_ids.append(run_id)
-        return submitted_ids
+            future = self._futures.get(ctf_id)
+            if future is not None and not future.done():
+                return
+            self._futures[ctf_id] = self.executor.submit(
+                self._run_ctf_with_parallel_limit,
+                ctf_id,
+                run_ids,
+            )
 
     def _configured_parallel_limit(self) -> int:
         with self.app.app_context():
@@ -1141,208 +1211,330 @@ class CompetitionManager:
             self._active_parallel_runs = max(0, self._active_parallel_runs - 1)
             self._parallel_condition.notify_all()
 
-    def _run_with_parallel_limit(self, competition_run_id: int) -> None:
+    def _run_ctf_with_parallel_limit(self, ctf_id: int, run_ids: list[int]) -> None:
         self._acquire_parallel_slot()
         try:
-            self._run_single(competition_run_id)
+            self._run_ctf(ctf_id, run_ids)
         finally:
             self._release_parallel_slot()
 
-    def _run_single(self, competition_run_id: int) -> None:
+    def _run_challenge(
+        self,
+        competition_run_id: int,
+        challenge: object,
+        challenge_run_id: int,
+        ctf: object,
+        model: object,
+        account: object,
+        competition_run: object,
+        stop_event: threading.Event,
+        first_solve_event: threading.Event,
+    ) -> None:
         with self.app.app_context():
             db = get_db()
-            competition_run = get_competition_run(db, competition_run_id)
-            if competition_run is None:
-                return
-            if competition_run["status"] == "completed":
+
+            # If grace period already expired before we start, mark as timed_out immediately
+            if stop_event.is_set():
+                ended_at = utc_now()
+                db.execute(
+                    """
+                    UPDATE challenge_runs
+                    SET status = 'timed_out', ended_at = ?, error_message = ?, updated_at = ?
+                    WHERE id = ?
+                    """,
+                    (
+                        ended_at,
+                        "Skipped: another model solved this challenge and the grace period expired.",
+                        ended_at,
+                        challenge_run_id,
+                    ),
+                )
+                db.commit()
+                _refresh_run_totals(db, competition_run_id)
                 return
 
-            now = utc_now()
+            started_at = utc_now()
             db.execute(
                 """
-                UPDATE competition_runs
-                SET status = 'running',
+                UPDATE challenge_runs
+                SET
+                    status = 'running',
+                    attempt_index = 1,
                     started_at = COALESCE(started_at, ?),
                     updated_at = ?
                 WHERE id = ?
                 """,
-                (now, now, competition_run_id),
+                (started_at, started_at, challenge_run_id),
             )
             db.commit()
-
-            competition_run = get_competition_run(db, competition_run_id)
-            ctf = ctf_service.get_ctf(db, competition_run["ctf_event_id"])
-            model = ctf_service.get_model(db, competition_run["model_id"])
-            account = ctf_service.get_ctf_account(db, ctf["id"], model["id"])
-            challenges = ctf_service.list_challenges(db, ctf["id"])
             _log_event(
                 db,
                 competition_run_id=competition_run_id,
+                challenge_run_id=challenge_run_id,
                 level="info",
-                message=f"Started Docker run for {model['display_name']}.",
-                details={"challenge_count": len(challenges), "model": model["model_name"]},
+                message=f"Started challenge {challenge['name']}.",
+                details={"remote_id": challenge["remote_id"]},
             )
 
-            for challenge in challenges:
-                challenge_run = db.execute(
-                    """
-                    SELECT *
-                    FROM challenge_runs
-                    WHERE competition_run_id = ? AND challenge_id = ?
-                    """,
-                    (competition_run_id, challenge["id"]),
-                ).fetchone()
-                if challenge_run is None or challenge_run["status"] in TERMINAL_CHALLENGE_STATUSES:
-                    continue
-
-                started_at = utc_now()
+            try:
+                result = self.backend.execute(
+                    ctf=ctf,
+                    model=model,
+                    challenge=challenge,
+                    account=account,
+                    competition_run=competition_run,
+                    stop_event=stop_event,
+                )
+                cost_usd = pricing.estimate_cost(
+                    model["rate_key"],
+                    input_tokens=result.input_tokens,
+                    output_tokens=result.output_tokens,
+                    cached_input_tokens=result.cached_input_tokens,
+                    reasoning_tokens=result.reasoning_tokens,
+                )
+                budget_status, budget_error = _apply_budget(
+                    competition_run,
+                    result,
+                    cost_usd,
+                )
+                if budget_status == "budget_exhausted":
+                    final_status = budget_status
+                    final_error = budget_error
+                    flag_attempts = result.flag_attempts
+                else:
+                    final_status, final_error, flag_attempts = _verify_candidates(
+                        ctf,
+                        challenge,
+                        account,
+                        result,
+                    )
+                ended_at = utc_now()
                 db.execute(
                     """
                     UPDATE challenge_runs
                     SET
-                        status = 'running',
-                        attempt_index = 1,
-                        started_at = COALESCE(started_at, ?),
+                        status = ?,
+                        ended_at = ?,
+                        input_tokens = ?,
+                        output_tokens = ?,
+                        reasoning_tokens = ?,
+                        cached_input_tokens = ?,
+                        cost_usd = ?,
+                        flag_attempts = ?,
+                        turns = ?,
+                        solve_time_seconds = ?,
+                        transcript_excerpt = ?,
+                        error_message = ?,
                         updated_at = ?
                     WHERE id = ?
                     """,
-                    (started_at, started_at, challenge_run["id"]),
+                    (
+                        final_status,
+                        ended_at,
+                        result.input_tokens,
+                        result.output_tokens,
+                        result.reasoning_tokens,
+                        result.cached_input_tokens,
+                        cost_usd,
+                        flag_attempts,
+                        result.turns,
+                        result.solve_time_seconds if final_status == "solved" else None,
+                        result.transcript_excerpt,
+                        final_error,
+                        ended_at,
+                        challenge_run_id,
+                    ),
                 )
                 db.commit()
                 _log_event(
                     db,
                     competition_run_id=competition_run_id,
-                    challenge_run_id=challenge_run["id"],
+                    challenge_run_id=challenge_run_id,
+                    level="info" if final_status == "solved" else "warning",
+                    message=f"Challenge {challenge['name']} ended as {final_status}.",
+                    details={
+                        "remote_id": challenge["remote_id"],
+                        "candidate_count": len(result.flag_candidates),
+                        "flag_attempts": flag_attempts,
+                        "cost_usd": cost_usd,
+                        "error": final_error,
+                    },
+                )
+                _refresh_run_totals(db, competition_run_id)
+
+                # Signal first solve so the grace period timer starts
+                if final_status == "solved":
+                    first_solve_event.set()
+
+            except Exception as exc:
+                sentry_sdk.capture_exception(exc)
+                ended_at = utc_now()
+                db.execute(
+                    """
+                    UPDATE challenge_runs
+                    SET
+                        status = 'crashed',
+                        ended_at = ?,
+                        error_message = ?,
+                        updated_at = ?
+                    WHERE id = ?
+                    """,
+                    (ended_at, str(exc), ended_at, challenge_run_id),
+                )
+                db.commit()
+                _log_event(
+                    db,
+                    competition_run_id=competition_run_id,
+                    challenge_run_id=challenge_run_id,
+                    level="error",
+                    message=f"Challenge {challenge['name']} crashed.",
+                    details={"error": str(exc)},
+                )
+                _refresh_run_totals(db, competition_run_id)
+
+    def _run_ctf(self, ctf_id: int, run_ids: list[int]) -> None:
+        """
+        Coordinate all models through challenges one at a time (ordered by solves DESC).
+        All models attack each challenge concurrently. When the first model solves a
+        challenge, a grace period starts; after it expires the remaining Docker containers
+        are killed and everyone moves to the next challenge.
+        """
+        with self.app.app_context():
+            db = get_db()
+
+            # Filter out already-completed runs
+            active_run_ids = []
+            for run_id in run_ids:
+                run = get_competition_run(db, run_id)
+                if run is None or run["status"] == "completed":
+                    continue
+                active_run_ids.append(run_id)
+                now = utc_now()
+                db.execute(
+                    """
+                    UPDATE competition_runs
+                    SET status = 'running',
+                        started_at = COALESCE(started_at, ?),
+                        updated_at = ?
+                    WHERE id = ?
+                    """,
+                    (now, now, run_id),
+                )
+            db.commit()
+
+            if not active_run_ids:
+                return
+
+            ctf = ctf_service.get_ctf(db, ctf_id)
+            # Challenges ordered by solves DESC — most-solved (easiest) first
+            challenges = ctf_service.list_challenges(db, ctf_id)
+
+            # Pre-load per-run info (model, account, competition_run snapshot)
+            run_infos: dict[int, dict] = {}
+            for run_id in active_run_ids:
+                competition_run = get_competition_run(db, run_id)
+                model = ctf_service.get_model(db, competition_run["model_id"])
+                account = ctf_service.get_ctf_account(db, ctf_id, model["id"])
+                run_infos[run_id] = {
+                    "competition_run": competition_run,
+                    "model": model,
+                    "account": account,
+                }
+                _log_event(
+                    db,
+                    competition_run_id=run_id,
                     level="info",
-                    message=f"Started challenge {challenge['name']}.",
-                    details={"remote_id": challenge["remote_id"]},
+                    message=f"Started Docker run for {model['display_name']}.",
+                    details={"challenge_count": len(challenges), "model": model["model_name"]},
                 )
 
-                try:
-                    result = self.backend.execute(
-                        ctf=ctf,
-                        model=model,
-                        challenge=challenge,
-                        account=account,
-                        competition_run=competition_run,
-                    )
-                    cost_usd = pricing.estimate_cost(
-                        model["rate_key"],
-                        input_tokens=result.input_tokens,
-                        output_tokens=result.output_tokens,
-                        cached_input_tokens=result.cached_input_tokens,
-                        reasoning_tokens=result.reasoning_tokens,
-                    )
-                    budget_status, budget_error = _apply_budget(
-                        competition_run,
-                        result,
-                        cost_usd,
-                    )
-                    if budget_status == "budget_exhausted":
-                        final_status = budget_status
-                        final_error = budget_error
-                        flag_attempts = result.flag_attempts
-                    else:
-                        final_status, final_error, flag_attempts = _verify_candidates(
-                            ctf,
-                            challenge,
-                            account,
-                            result,
-                        )
-                    ended_at = utc_now()
-                    db.execute(
-                        """
-                        UPDATE challenge_runs
-                        SET
-                            status = ?,
-                            ended_at = ?,
-                            input_tokens = ?,
-                            output_tokens = ?,
-                            reasoning_tokens = ?,
-                            cached_input_tokens = ?,
-                            cost_usd = ?,
-                            flag_attempts = ?,
-                            turns = ?,
-                            solve_time_seconds = ?,
-                            transcript_excerpt = ?,
-                            error_message = ?,
-                            updated_at = ?
-                        WHERE id = ?
-                        """,
-                        (
-                            final_status,
-                            ended_at,
-                            result.input_tokens,
-                            result.output_tokens,
-                            result.reasoning_tokens,
-                            result.cached_input_tokens,
-                            cost_usd,
-                            flag_attempts,
-                            result.turns,
-                            result.solve_time_seconds if final_status == "solved" else None,
-                            result.transcript_excerpt,
-                            final_error,
-                            ended_at,
-                            challenge_run["id"],
-                        ),
-                    )
-                    db.commit()
-                    _log_event(
-                        db,
-                        competition_run_id=competition_run_id,
-                        challenge_run_id=challenge_run["id"],
-                        level="info" if final_status == "solved" else "warning",
-                        message=f"Challenge {challenge['name']} ended as {final_status}.",
-                        details={
-                            "remote_id": challenge["remote_id"],
-                            "candidate_count": len(result.flag_candidates),
-                            "flag_attempts": flag_attempts,
-                            "cost_usd": cost_usd,
-                            "error": final_error,
-                        },
-                    )
-                    _refresh_run_totals(db, competition_run_id)
-                except Exception as exc:
-                    sentry_sdk.capture_exception(exc)
-                    ended_at = utc_now()
-                    db.execute(
-                        """
-                        UPDATE challenge_runs
-                        SET
-                            status = 'crashed',
-                            ended_at = ?,
-                            error_message = ?,
-                            updated_at = ?
-                        WHERE id = ?
-                        """,
-                        (ended_at, str(exc), ended_at, challenge_run["id"]),
-                    )
-                    db.commit()
-                    _log_event(
-                        db,
-                        competition_run_id=competition_run_id,
-                        challenge_run_id=challenge_run["id"],
-                        level="error",
-                        message=f"Challenge {challenge['name']} crashed.",
-                        details={"error": str(exc)},
-                    )
-                    _refresh_run_totals(db, competition_run_id)
+        grace_seconds = max(0, runtime_settings.positive_int("solver_grace_period_seconds"))
 
+        for challenge in challenges:
+            # Collect which (run_id, challenge_run_id) pairs are still pending
+            with self.app.app_context():
+                db = get_db()
+                pending: list[tuple[int, int]] = []
+                for run_id in active_run_ids:
+                    row = db.execute(
+                        """
+                        SELECT id, status FROM challenge_runs
+                        WHERE competition_run_id = ? AND challenge_id = ?
+                        """,
+                        (run_id, challenge["id"]),
+                    ).fetchone()
+                    if row is None or row["status"] in TERMINAL_CHALLENGE_STATUSES:
+                        continue
+                    pending.append((run_id, int(row["id"])))
+
+            if not pending:
+                continue
+
+            first_solve_event = threading.Event()
+            stop_event = threading.Event()
+
+            # Grace-period timer: fires after the first solve, then signals stop
+            def _grace_timer(ev: threading.Event, sev: threading.Event, seconds: int) -> None:
+                ev.wait()
+                if not sev.is_set():
+                    time.sleep(seconds)
+                    sev.set()
+
+            grace_thread = threading.Thread(
+                target=_grace_timer,
+                args=(first_solve_event, stop_event, grace_seconds),
+                daemon=True,
+            )
+            grace_thread.start()
+
+            with concurrent.futures.ThreadPoolExecutor(
+                max_workers=len(pending),
+                thread_name_prefix=f"ctfarena-ch-{ctf_id}",
+            ) as ch_executor:
+                futs = [
+                    ch_executor.submit(
+                        self._run_challenge,
+                        run_id,
+                        challenge,
+                        challenge_run_id,
+                        ctf,
+                        run_infos[run_id]["model"],
+                        run_infos[run_id]["account"],
+                        run_infos[run_id]["competition_run"],
+                        stop_event,
+                        first_solve_event,
+                    )
+                    for run_id, challenge_run_id in pending
+                ]
+                concurrent.futures.wait(futs)
+
+            # Ensure stop_event and grace thread are cleaned up
+            stop_event.set()
+            grace_thread.join(timeout=1)
+
+        # Mark all active runs as completed
+        with self.app.app_context():
+            db = get_db()
             finished_at = utc_now()
-            db.execute(
-                """
-                UPDATE competition_runs
-                SET status = 'completed', ended_at = ?, updated_at = ?
-                WHERE id = ?
-                """,
-                (finished_at, finished_at, competition_run_id),
-            )
-            db.commit()
-            _log_event(
-                db,
-                competition_run_id=competition_run_id,
-                level="info",
-                message=f"Completed Docker run for {model['display_name']}.",
-                details=_status_counts(db, competition_run_id),
-            )
-            _refresh_run_totals(db, competition_run_id)
+            for run_id in active_run_ids:
+                run = get_competition_run(db, run_id)
+                if run is None or run["status"] == "completed":
+                    continue
+                model = run_infos[run_id]["model"]
+                db.execute(
+                    """
+                    UPDATE competition_runs
+                    SET status = 'completed', ended_at = ?, updated_at = ?
+                    WHERE id = ?
+                    """,
+                    (finished_at, finished_at, run_id),
+                )
+                db.commit()
+                _log_event(
+                    db,
+                    competition_run_id=run_id,
+                    level="info",
+                    message=f"Completed Docker run for {model['display_name']}.",
+                    details=_status_counts(db, run_id),
+                )
+                _refresh_run_totals(db, run_id)
