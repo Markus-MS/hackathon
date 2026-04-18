@@ -457,8 +457,8 @@ Description:
 Connection info:
 {challenge["connection_info"]}
 
-CTFd account — user: {account.get("username", "")}  pass: {account.get("password", "")}
-               token: {account.get("ctfd_api_token", "")}   team: {account.get("team_name", "")}
+CTFd account — user: {account["username"] if account is not None and "username" in account.keys() else ""}  pass: {account["password"] if account is not None and "password" in account.keys() else ""}
+               token: {account["api_token"] if account is not None and "api_token" in account.keys() else ""}   team: {account["team_name"] if account is not None and "team_name" in account.keys() else ""}
 
 ━━━ TOOLS AVAILABLE ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 Python 3: pwntools  pycryptodome  sympy  gmpy2  z3-solver  requests  Pillow  numpy
@@ -2853,10 +2853,10 @@ Flag pattern: `{flag_regex}`
 {challenge["connection_info"]}
 
 ## Your CTFd account
-Username: {account.get("username", "")}
-Password: {account.get("password", "")}
-API token: {account.get("ctfd_api_token", "")}
-Team: {account.get("team_name", "")}
+Username: {account["username"] if account is not None and "username" in account.keys() else ""}
+Password: {account["password"] if account is not None and "password" in account.keys() else ""}
+API token: {account["api_token"] if account is not None and "api_token" in account.keys() else ""}
+Team: {account["team_name"] if account is not None and "team_name" in account.keys() else ""}
 
 ## Your task
 Find the flag. Use bash commands to interact with the challenge service, decode
