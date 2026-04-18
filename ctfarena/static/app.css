@@ -1,0 +1,582 @@
+:root {
+  --bg: #f3f4f7;
+  --bg-accent: #dde3ec;
+  --panel: rgba(255, 255, 255, 0.82);
+  --panel-strong: rgba(255, 255, 255, 0.94);
+  --ink: #111318;
+  --muted: #6d7480;
+  --accent: #111318;
+  --accent-2: #636b75;
+  --line: rgba(17, 19, 24, 0.08);
+  --shadow: 0 24px 80px rgba(19, 28, 45, 0.12);
+  --solved: rgba(52, 199, 89, 0.16);
+  --running: rgba(255, 159, 10, 0.18);
+  --failed: rgba(255, 69, 58, 0.16);
+  --queued: #e8edf4;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  font-family: "SF Pro Display", "Segoe UI", Helvetica, Arial, sans-serif;
+  color: var(--ink);
+  background:
+    radial-gradient(circle at top left, rgba(120, 146, 186, 0.22), transparent 28%),
+    radial-gradient(circle at top right, rgba(255, 255, 255, 0.9), transparent 22%),
+    linear-gradient(180deg, var(--bg), var(--bg-accent));
+  min-height: 100vh;
+}
+
+a {
+  color: inherit;
+  text-decoration: none;
+}
+
+code {
+  font-family: "IBM Plex Mono", "SFMono-Regular", monospace;
+  font-size: 0.92em;
+}
+
+button,
+input,
+select,
+textarea {
+  font: inherit;
+}
+
+button,
+.button-link {
+  border: 0;
+  border-radius: 999px;
+  padding: 0.8rem 1.25rem;
+  background: linear-gradient(135deg, #111318, #636b75);
+  color: white;
+  cursor: pointer;
+}
+
+.ghost-button {
+  background: white;
+  color: var(--ink);
+  border: 1px solid var(--line);
+}
+
+.page-shell {
+  width: min(1320px, calc(100vw - 2rem));
+  margin: 0 auto;
+  padding: 1.25rem 0 3rem;
+}
+
+.site-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-bottom: 1.5rem;
+}
+
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 0.9rem;
+}
+
+.brand strong {
+  display: block;
+  font-size: 1.05rem;
+}
+
+.brand small {
+  color: var(--muted);
+}
+
+.brand-mark {
+  display: inline-grid;
+  place-items: center;
+  width: 2.6rem;
+  height: 2.6rem;
+  border-radius: 999px;
+  background: linear-gradient(135deg, #111318, #636b75);
+  color: white;
+  font-weight: 700;
+  box-shadow: 0 0 0 6px rgba(17, 19, 24, 0.04);
+}
+
+.site-nav {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.site-nav form {
+  margin: 0;
+}
+
+.content {
+  display: grid;
+  gap: 1.25rem;
+}
+
+.hero-card,
+.panel {
+  border: 1px solid rgba(255, 255, 255, 0.75);
+  border-radius: 24px;
+  background: linear-gradient(180deg, var(--panel-strong), var(--panel));
+  backdrop-filter: blur(22px);
+  box-shadow: var(--shadow);
+}
+
+.hero-card {
+  padding: 1.75rem;
+  display: grid;
+  grid-template-columns: minmax(0, 1.7fr) minmax(260px, 1fr);
+  gap: 1.5rem;
+}
+
+.admin-hero {
+  grid-template-columns: minmax(0, 1.7fr) minmax(220px, 1fr);
+}
+
+.hero-card h1,
+.panel h2,
+.panel h1 {
+  margin: 0.25rem 0 0.75rem;
+  font-family: "SF Pro Display", "Segoe UI", Helvetica, Arial, sans-serif;
+  font-size: clamp(1.8rem, 2.5vw, 3rem);
+  letter-spacing: -0.05em;
+  line-height: 0.96;
+}
+
+.panel {
+  padding: 1.5rem;
+}
+
+.panel h2 {
+  font-size: 1.4rem;
+}
+
+.hero-copy,
+.muted-copy,
+.empty-state {
+  color: var(--muted);
+  line-height: 1.55;
+}
+
+.eyebrow {
+  margin: 0;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  font-size: 0.72rem;
+  color: var(--muted);
+  font-weight: 700;
+}
+
+.hero-meta {
+  margin: 0;
+  display: grid;
+  gap: 0.9rem;
+  padding: 1.1rem;
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.74);
+  border: 1px solid var(--line);
+  align-self: start;
+}
+
+.hero-meta dt {
+  color: var(--muted);
+  font-size: 0.78rem;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+}
+
+.hero-meta dd {
+  margin: 0.2rem 0 0;
+  font-weight: 600;
+}
+
+.stat-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 1rem;
+}
+
+.stat-card {
+  padding: 1.15rem 1.25rem;
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.74);
+  border: 1px solid var(--line);
+}
+
+.stat-card span {
+  display: block;
+  color: var(--muted);
+  font-size: 0.9rem;
+}
+
+.stat-card strong {
+  display: block;
+  margin-top: 0.3rem;
+  font-size: 1.6rem;
+  font-family: "SF Pro Display", "Segoe UI", Helvetica, Arial, sans-serif;
+}
+
+.panel-head {
+  display: flex;
+  align-items: start;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-bottom: 1rem;
+}
+
+.panel-link {
+  color: var(--accent);
+  font-weight: 700;
+}
+
+.table-wrap {
+  overflow-x: auto;
+}
+
+.data-table,
+.matrix-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.data-table th,
+.data-table td,
+.matrix-table th,
+.matrix-table td {
+  text-align: left;
+  padding: 0.9rem 0.85rem;
+  border-bottom: 1px solid var(--line);
+  vertical-align: top;
+}
+
+.data-table thead th,
+.matrix-table thead th {
+  color: var(--muted);
+  font-size: 0.78rem;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+}
+
+.model-chip {
+  display: flex;
+  align-items: center;
+  gap: 0.7rem;
+}
+
+.model-chip small {
+  display: block;
+  color: var(--muted);
+}
+
+.dot {
+  width: 0.85rem;
+  height: 0.85rem;
+  border-radius: 50%;
+}
+
+.challenge-cell small {
+  display: block;
+  margin-top: 0.25rem;
+  color: var(--muted);
+}
+
+.status-card {
+  display: grid;
+  gap: 0.35rem;
+  min-width: 140px;
+  padding: 0.7rem 0.8rem;
+  border-radius: 18px;
+  border: 1px solid transparent;
+}
+
+.status-card small {
+  color: var(--muted);
+}
+
+.status-label {
+  font-size: 0.82rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  font-weight: 700;
+}
+
+.status-solved {
+  background: var(--solved);
+  border-color: rgba(45, 106, 79, 0.18);
+}
+
+.status-running {
+  background: var(--running);
+  border-color: rgba(200, 155, 0, 0.25);
+}
+
+.status-failed,
+.status-crashed,
+.status-budget_exhausted,
+.status-timed_out {
+  background: var(--failed);
+  border-color: rgba(165, 37, 37, 0.18);
+}
+
+.status-queued {
+  background: var(--queued);
+  border-color: rgba(79, 93, 117, 0.12);
+}
+
+.archive-grid,
+.account-grid {
+  display: grid;
+  gap: 1rem;
+}
+
+.archive-grid {
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+}
+
+.archive-card,
+.ctf-admin-card {
+  display: block;
+  padding: 1rem 1.1rem;
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.74);
+  border: 1px solid var(--line);
+}
+
+.archive-card small {
+  display: block;
+  margin-top: 0.35rem;
+  color: var(--muted);
+}
+
+.flash-stack {
+  display: grid;
+  gap: 0.75rem;
+  margin-bottom: 1rem;
+}
+
+.flash {
+  padding: 0.9rem 1rem;
+  border-radius: 18px;
+  border: 1px solid var(--line);
+}
+
+.flash-success {
+  background: var(--solved);
+}
+
+.flash-error {
+  background: var(--failed);
+}
+
+.stack-form {
+  display: grid;
+  gap: 0.9rem;
+}
+
+.grid-form {
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+}
+
+.wide-field {
+  grid-column: 1 / -1;
+}
+
+.stack-form label {
+  display: grid;
+  gap: 0.35rem;
+  color: var(--muted);
+  font-size: 0.92rem;
+}
+
+.stack-form input,
+.stack-form select,
+.stack-form textarea {
+  width: 100%;
+  padding: 0.82rem 0.95rem;
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  background: white;
+  color: var(--ink);
+}
+
+.form-actions {
+  display: flex;
+  align-items: end;
+}
+
+.narrow-panel {
+  width: min(540px, 100%);
+}
+
+.ctf-admin-card + .ctf-admin-card {
+  margin-top: 1rem;
+}
+
+.ctf-admin-head {
+  display: flex;
+  align-items: start;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.ctf-admin-head h3,
+.account-form h4 {
+  margin: 0;
+  font-family: "SF Pro Display", "Segoe UI", Helvetica, Arial, sans-serif;
+}
+
+.ctf-admin-head p {
+  margin: 0.35rem 0 0;
+  color: var(--muted);
+}
+
+.inline-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.6rem;
+  align-items: center;
+  justify-content: end;
+}
+
+.account-grid {
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  margin-top: 1rem;
+}
+
+.account-form,
+.model-admin-form {
+  padding: 1rem;
+  border-radius: 18px;
+  border: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.74);
+}
+
+.model-admin-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 1rem;
+}
+
+.inline-check {
+  display: flex !important;
+  grid-template-columns: auto 1fr;
+  align-items: center;
+  gap: 0.55rem !important;
+}
+
+.inline-check input {
+  width: auto;
+}
+
+.run-monitor {
+  display: grid;
+  gap: 0.85rem;
+  margin-top: 1.2rem;
+}
+
+.run-monitor h4 {
+  margin: 0;
+  font-family: "SF Pro Display", "Segoe UI", Helvetica, Arial, sans-serif;
+}
+
+.run-card {
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.74);
+  padding: 0.9rem;
+}
+
+.run-card summary {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.8rem;
+  cursor: pointer;
+}
+
+.compact-table th,
+.compact-table td {
+  padding: 0.65rem;
+}
+
+.compact-table small {
+  display: block;
+  color: var(--muted);
+  margin-top: 0.2rem;
+}
+
+.event-list {
+  display: grid;
+  gap: 0.45rem;
+  margin-top: 0.8rem;
+}
+
+.event {
+  margin: 0;
+  padding: 0.55rem 0.65rem;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: var(--queued);
+  color: var(--muted);
+}
+
+.event strong {
+  color: var(--ink);
+}
+
+.event-warning {
+  background: var(--running);
+}
+
+.event-error {
+  background: var(--failed);
+}
+
+.pill {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.3rem 0.65rem;
+  border-radius: 999px;
+  font-size: 0.78rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  font-weight: 700;
+}
+
+.pill-active,
+.pill-completed {
+  background: var(--solved);
+}
+
+.pill-draft,
+.pill-running {
+  background: var(--running);
+}
+
+.pill-archived {
+  background: var(--queued);
+}
+
+@media (max-width: 960px) {
+  .hero-card,
+  .admin-hero,
+  .stat-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .site-header,
+  .ctf-admin-head {
+    flex-direction: column;
+    align-items: start;
+  }
+
+  .inline-actions {
+    justify-content: start;
+  }
+}
