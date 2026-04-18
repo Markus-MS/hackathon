@@ -1,17 +1,17 @@
 :root {
   color-scheme: light;
-  --bg: #fdfdff;
-  --bg-accent: #f7f9fc;
-  --panel: rgba(255, 255, 255, 0.84);
-  --panel-strong: rgba(255, 255, 255, 0.94);
-  --text: #111318;
-  --muted: #6d7480;
-  --border: rgba(17, 19, 24, 0.08);
+  --bg: #f6f3ec;
+  --bg-accent: #ece7dd;
+  --panel: rgba(255, 255, 255, 0.88);
+  --panel-strong: rgba(255, 255, 255, 0.96);
+  --text: #111827;
+  --muted: #4b5563;
+  --border: rgba(17, 24, 39, 0.16);
   --green: #34c759;
   --orange: #ff9f0a;
   --gray: #cfd4dc;
   --red: #ff453a;
-  --shadow: 0 24px 80px rgba(19, 28, 45, 0.1);
+  --shadow: 0 8px 24px rgba(17, 24, 39, 0.08);
 }
 
 * {
@@ -21,10 +21,14 @@
 body {
   margin: 0;
   min-height: 100vh;
-  font-family: "Inter", "Segoe UI", Helvetica, Arial, sans-serif;
+  font-family: "Roboto", "Segoe UI", Helvetica, Arial, sans-serif;
   background: var(--bg);
   color: var(--text);
   padding: 12px;
+  background-image:
+    radial-gradient(circle at 1px 1px, rgba(17, 24, 39, 0.04) 0.9px, transparent 0.9px),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.72), rgba(244, 239, 229, 0.92));
+  background-size: 5px 5px, 100% 100%;
 }
 
 main {
@@ -46,26 +50,26 @@ textarea {
 
 button,
 .button-link {
-  border: 0;
-  border-radius: 999px;
+  border: 1px solid #111111;
+  border-radius: 6px;
   padding: 0.8rem 1.25rem;
-  background: linear-gradient(135deg, #111318, #636b75);
-  color: white;
+  background: #111111;
+  color: #ffffff;
   cursor: pointer;
-  font-weight: 700;
+  font-weight: 600;
 }
 
 code {
-  font-family: "SFMono-Regular", "Consolas", monospace;
+  font-family: "PT Mono", "Consolas", monospace;
   font-size: 0.92em;
   overflow-wrap: anywhere;
 }
 
 .shell {
-  border: 1px solid rgba(255, 255, 255, 0.7);
-  border-radius: 5px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
   background: linear-gradient(180deg, var(--panel-strong), var(--panel));
-  backdrop-filter: blur(22px);
+  box-shadow: var(--shadow);
   overflow: hidden;
 }
 
@@ -74,9 +78,9 @@ code {
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  padding: 10px 14px;
+  padding: 12px 16px;
   border-bottom: 1px solid var(--border);
-  background: rgba(255, 255, 255, 0.72);
+  background: rgba(255, 255, 255, 0.92);
   position: sticky;
   top: 0;
   z-index: 3;
@@ -95,8 +99,10 @@ code {
 
 .brand {
   gap: 8px;
-  font-size: 0.9rem;
+  font-size: 0.84rem;
   font-weight: 600;
+  position: relative;
+  z-index: 2;
 }
 
 .brand-mark {
@@ -114,6 +120,29 @@ code {
   justify-content: flex-end;
 }
 
+.nav-title {
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
+  max-width: min(58vw, 720px);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-align: center;
+  font-family: "Montserrat", "Roboto", sans-serif;
+  font-size: clamp(0.92rem, 1.4vw, 1.08rem);
+  line-height: 1.1;
+  letter-spacing: -0.02em;
+  font-weight: 600;
+  color: var(--text);
+  pointer-events: none;
+}
+
+.nav-spacer {
+  width: 104px;
+  height: 1px;
+}
+
 .nav-links form {
   margin: 0;
 }
@@ -122,10 +151,10 @@ code {
 .playing-now,
 .nav-button {
   padding: 7px 12px;
-  border-radius: 999px;
-  background: rgba(255, 255, 255, 0.88);
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.94);
   color: var(--text);
-  font-size: 0.84rem;
+  font-size: 0.78rem;
   font-weight: 600;
   white-space: nowrap;
 }
@@ -173,7 +202,7 @@ code {
 }
 
 .hero {
-  padding: 8px 14px 4px;
+  padding: 4px 14px 2px;
 }
 
 .admin-hero {
@@ -194,9 +223,10 @@ code {
 
 h1 {
   margin: 0;
-  font-size: clamp(1.4rem, 2.5vw, 2.1rem);
-  line-height: 0.96;
-  letter-spacing: -0.05em;
+  font-family: "Montserrat", "Roboto", sans-serif;
+  font-size: clamp(1.3rem, 2.2vw, 1.8rem);
+  line-height: 1.05;
+  letter-spacing: -0.02em;
   max-width: 14ch;
 }
 
@@ -238,12 +268,14 @@ h4 {
 .run-card,
 .meta-card {
   border: 1px solid var(--border);
-  border-radius: 18px;
-  background: rgba(255, 255, 255, 0.74);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.82);
 }
 
 .summary-tile {
   padding: 14px 16px;
+  overflow: hidden;
+  box-shadow: 0 1px 0 rgba(17, 24, 39, 0.06);
 }
 
 .summary-tile span,
@@ -262,17 +294,20 @@ h4 {
 .mini-chart {
   position: relative;
   display: flex;
+  align-items: center;
   justify-content: center;
-  height: 152px;
-  margin-top: 12px;
-  padding: 8px 8px 0;
+  height: 110px;
+  margin-top: 8px;
+  padding: 0;
 }
 
 .mini-chart canvas {
   display: block;
-  max-width: 192px;
-  width: 100%;
-  height: 100%;
+  width: 110px !important;
+  height: 110px !important;
+  max-width: 110px !important;
+  max-height: 110px !important;
+  flex: 0 0 auto;
 }
 
 .matrix-card,
@@ -288,19 +323,19 @@ h4 {
 
 .matrix-card {
   border: 1px solid var(--border);
-  border-radius: 5px;
-  background: rgba(255, 255, 255, 0.74);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.86);
   overflow: auto;
 }
 
 .matrix-card table {
   width: 100%;
-  min-width: 1050px;
+  min-width: 900px;
   border-collapse: collapse;
 }
 
 .matrix-card thead th {
-  padding: 10px;
+  padding: 6px 4px;
   border-bottom: 1px solid var(--border);
   color: var(--muted);
   font-size: 0.83rem;
@@ -308,7 +343,9 @@ h4 {
   letter-spacing: 0.04em;
   text-transform: uppercase;
   text-align: center;
-  background: rgba(250, 250, 252, 0.9);
+  background: rgba(239, 234, 224, 0.78);
+  height: 136px;
+  vertical-align: bottom;
 }
 
 .challenge-link {
@@ -322,6 +359,18 @@ h4 {
   text-decoration-color: rgba(17, 19, 24, 0.8);
 }
 
+.matrix-challenge-label {
+  display: inline-block;
+  width: 98px;
+  max-width: 98px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-align: left;
+  transform: rotate(-45deg);
+  transform-origin: left bottom;
+}
+
 .matrix-card thead th:first-child,
 .matrix-card tbody th {
   position: sticky;
@@ -333,12 +382,12 @@ h4 {
 
 .matrix-card tbody th,
 .matrix-card tbody td {
-  padding: 10px;
+  padding: 6px 5px;
   border-bottom: 1px solid rgba(17, 19, 24, 0.06);
 }
 
 .matrix-card tbody th {
-  min-width: 118px;
+  min-width: 104px;
   font-size: 0.9rem;
   font-weight: 600;
 }
@@ -481,8 +530,8 @@ h4 {
 .leaderboard-table-card,
 .archive-card {
   border: 1px solid var(--border);
-  border-radius: 18px;
-  background: rgba(255, 255, 255, 0.74);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.82);
 }
 
 .leaderboard-table-card {
@@ -516,7 +565,7 @@ h4 {
   font-weight: 700;
   letter-spacing: 0.04em;
   text-transform: uppercase;
-  background: rgba(250, 250, 252, 0.9);
+  background: rgba(239, 234, 224, 0.78);
 }
 
 .leaderboard-table tbody tr:nth-child(even) td {
@@ -1018,7 +1067,7 @@ h4 {
   max-height: 360px;
   overflow: auto;
   padding: 12px;
-  font-family: "IBM Plex Mono", "Fira Code", "SFMono-Regular", Consolas, monospace;
+  font-family: "PT Mono", "Consolas", monospace;
   font-size: 0.82rem;
   line-height: 1.45;
   white-space: pre-wrap;
@@ -1056,6 +1105,11 @@ h4 {
   .nav-links,
   .inline-actions {
     justify-content: flex-start;
+  }
+
+  .nav-title {
+    max-width: 68vw;
+    font-size: 1rem;
   }
 
   .hero {

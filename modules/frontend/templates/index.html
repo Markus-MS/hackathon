@@ -6,7 +6,7 @@
   <title>{{ app_name }}</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@600;700&family=PT+Mono&family=Roboto:wght@400;500;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="{{ url_for('frontend.static', filename='app.css') }}">
   {% if sentry_frontend_config.enabled %}
     <script src="https://browser.sentry-cdn.com/8.33.0/bundle.tracing.replay.min.js" crossorigin="anonymous"></script>
@@ -77,26 +77,19 @@
           <span class="brand-mark"></span>
           <span>{{ app_name }}</span>
         </a>
-        <div class="nav-links">
-          <div class="playing-now">
-            <span class="flash-dot"></span>
-            <span id="status-text">Loading current event...</span>
-          </div>
-        </div>
+        <div class="nav-title" id="ctf-title">Local Test CTF</div>
+        <div class="nav-spacer" aria-hidden="true"></div>
       </nav>
 
       <header class="hero">
-        <p class="eyebrow" id="eyebrow">Weekly CTF</p>
-        <h1 id="ctf-title">https://ctfarena.live/</h1>
-        <p class="subtitle" id="ctf-copy">Loading live run data...</p>
         <div class="summary-grid">
           <div class="summary-tile">
-            <span>Challenges</span>
-            <strong id="stat-challenges">0</strong>
+            <span>Challenge Categories</span>
+            <div class="mini-chart" aria-hidden="true"><canvas id="chart-categories"></canvas></div>
           </div>
           <div class="summary-tile">
-            <span>Model Runs</span>
-            <strong id="stat-models">0</strong>
+            <span>Challenge Difficulty</span>
+            <div class="mini-chart" aria-hidden="true"><canvas id="chart-difficulty"></canvas></div>
           </div>
           <div class="summary-tile">
             <span>Solved Challenges</span>
@@ -168,8 +161,7 @@
       <section class="archive-section">
         <div class="section-head">
           <div>
-            <p class="eyebrow">Archive</p>
-            <h2>Recent weeks</h2>
+            <p class="eyebrow">CTF Events</p>
           </div>
         </div>
         <div class="archive-grid" id="archive-grid"></div>
@@ -230,6 +222,10 @@
         canvas.replaceWith(document.createTextNode(values.reduce((sum, value) => sum + value, 0)));
         return;
       }
+      canvas.width = 124;
+      canvas.height = 124;
+      canvas.style.width = "124px";
+      canvas.style.height = "124px";
       const displayLabels = labels.map((label) => (
         label.length > 14 ? `${label.slice(0, 13)}…` : label
       ));
@@ -316,24 +312,36 @@
     }
 
     function renderHeader(data) {
-      setText("status-text", data.status_text);
-
       if (!data.ctf) {
-        setText("eyebrow", "No Active Week");
-        setText("ctf-title", "https://ctfarena.live/ is waiting.");
-        setText("ctf-copy", "Create a week in Admin, sync challenges from CTFd, attach model accounts, and start the run.");
+        setText("ctf-title", "No Active CTF");
       } else {
-        const ctfUrl = data.ctf.ctfd_url || "No CTFd URL set";
-        setText("eyebrow", data.ctf.status);
         setText("ctf-title", data.ctf.title);
-        setText(
-          "ctf-copy",
-          `${ctfUrl} · budget ${Number(data.ctf.budget_usd).toFixed(2)} USD per challenge · sandbox ${data.ctf.sandbox_digest.slice(-16)}`
-        );
       }
 
-      setText("stat-challenges", data.overview.challenge_count);
-      setText("stat-models", data.overview.model_count);
+      const byCategory = new Map();
+      const byDifficulty = new Map();
+      for (const challenge of data.challenges) {
+        const category = String(challenge.category || "other");
+        const difficulty = String(challenge.difficulty || "unknown");
+        byCategory.set(category, (byCategory.get(category) || 0) + 1);
+        byDifficulty.set(difficulty, (byDifficulty.get(difficulty) || 0) + 1);
+      }
+      const categoryPalette = ["#34c759", "#5ac8fa", "#ff9f0a", "#af52de", "#ff453a", "#cfd4dc", "#30b0c7"];
+      const difficultyPalette = ["#34c759", "#ff9f0a", "#ff453a", "#cfd4dc"];
+      const categoryEntries = [...byCategory.entries()];
+      const difficultyEntries = [...byDifficulty.entries()];
+      renderPieChart(
+        "chart-categories",
+        categoryEntries.map(([label]) => label),
+        categoryEntries.map(([, value]) => value),
+        categoryEntries.map((_, index) => categoryPalette[index % categoryPalette.length]),
+      );
+      renderPieChart(
+        "chart-difficulty",
+        difficultyEntries.map(([label]) => label),
+        difficultyEntries.map(([, value]) => value),
+        difficultyEntries.map((_, index) => difficultyPalette[index % difficultyPalette.length]),
+      );
 
       const solvedCells = Number(data.matrix.solved_cells || 0);
       const totalCells = Number(data.matrix.total_cells || 0);
@@ -365,6 +373,8 @@
 
       for (const challenge of data.challenges) {
         const th = document.createElement("th");
+        const label = document.createElement("span");
+        label.className = "matrix-challenge-label";
         if (data.ctf && challenge.id != null) {
           const link = document.createElement("a");
           link.className = "challenge-link";
@@ -372,11 +382,12 @@
           link.target = "_blank";
           link.rel = "noopener noreferrer";
           link.textContent = challenge.name;
-          th.appendChild(link);
+          label.appendChild(link);
         } else {
-          th.textContent = challenge.name;
+          label.textContent = challenge.name;
         }
-        th.title = `${challenge.category} · ${challenge.points} pts · ${challenge.difficulty}`;
+        th.appendChild(label);
+        th.title = `${challenge.name} · ${challenge.category} · ${challenge.points} pts · ${challenge.difficulty}`;
         headRow.appendChild(th);
       }
 
