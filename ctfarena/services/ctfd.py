@@ -25,6 +25,15 @@ class CTFdDownloadError(RuntimeError):
 FILE_LINK_RE = re.compile(r"""href=["']([^"'#?][^"']*)["']""", re.IGNORECASE)
 
 
+def _is_correct_submission_response(data: dict[str, object]) -> bool:
+    status = str(data.get("status") or "").strip().lower()
+    if status:
+        return status == "correct"
+
+    message = str(data.get("message") or "").strip().lower()
+    return message.strip(" .!:;") == "correct"
+
+
 @dataclass(slots=True)
 class CTFdClient:
     base_url: str
@@ -251,14 +260,10 @@ class CTFdClient:
         if not isinstance(data, dict):
             raise CTFdSubmitError("Unexpected CTFd submission response shape.")
 
-        status = str(data.get("status") or "").lower()
+        status = str(data.get("status") or "").strip().lower()
         message = str(data.get("message") or "")
-        message_lower = message.lower()
         return {
-            "correct": (
-                status in {"correct"}
-                or "correct" in message_lower
-            ),
+            "correct": _is_correct_submission_response(data),
             "status": status,
             "message": message,
         }
