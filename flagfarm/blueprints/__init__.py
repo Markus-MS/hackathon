@@ -1,1 +1,0 @@
-"""FlagFarm web blueprints."""

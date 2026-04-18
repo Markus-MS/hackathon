@@ -1,1 +1,0 @@
-"""FlagFarm service layer."""
