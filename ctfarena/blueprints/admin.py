@@ -24,7 +24,7 @@ def login():
             next_url = request.args.get("next") or url_for("admin.dashboard")
             return redirect(next_url)
         flash("Invalid admin credentials.", "error")
-    return render_template("admin/login.html")
+    return render_template("frontend_admin/login.html")
 
 
 @bp.post("/logout")
@@ -55,7 +55,7 @@ def dashboard():
         if key in runtime_settings.SECRET_KEYS
     }
     return render_template(
-        "admin/dashboard.html",
+        "frontend_admin/dashboard.html",
         ctfs=ctfs,
         models=models,
         account_map=account_map,

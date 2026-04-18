@@ -34,7 +34,7 @@ The app is intentionally split into a small core package plus standalone modules
 - [ctfarena/services/competition.py](ctfarena/services/competition.py) owns run creation and the Docker-backed four-model runner.
 - [ctfarena/services/leaderboard.py](ctfarena/services/leaderboard.py) builds the ranked table and public matrix.
 - [ctfarena/telemetry.py](ctfarena/telemetry.py) centralizes optional Sentry setup and basic scrubbing.
-- [modules/frontend](modules/frontend) owns the public https://ctfarena.live/ frontend.
+- [modules/frontend](modules/frontend) owns the public https://ctfarena.live/ frontend and shared admin UI templates/theme.
 - [modules/docker-solver](modules/docker-solver) owns the local solver image build.
 - [modules/sentry-flask-starter](modules/sentry-flask-starter) keeps the standalone Sentry demo app.
 - [modules/live-terminal](modules/live-terminal) keeps the standalone live terminal demo.
