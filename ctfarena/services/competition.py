@@ -434,6 +434,23 @@ class DockerSolverBackend:
                 flag_candidates=[],
                 error_message=f"Missing {model['provider']} API key in admin settings.",
             )
+        if account is None or not str(account["api_token"]).strip():
+            return SolverResult(
+                status="crashed",
+                input_tokens=0,
+                output_tokens=0,
+                reasoning_tokens=0,
+                cached_input_tokens=0,
+                flag_attempts=0,
+                turns=0,
+                solve_time_seconds=None,
+                transcript_excerpt="",
+                flag_candidates=[],
+                error_message=(
+                    "Missing per-model CTFd API token. Configure a separate CTFd "
+                    f"account token for {model['display_name']}."
+                ),
+            )
 
         manifest = {
             "ctf": {
@@ -451,10 +468,10 @@ class DockerSolverBackend:
                 "connection_info": challenge["connection_info"],
             },
             "account": {
-                "username": account["username"] if account is not None else "",
-                "password": account["password"] if account is not None else "",
-                "ctfd_api_token": account["api_token"] if account is not None else "",
-                "team_name": account["team_name"] if account is not None else "",
+                "username": account["username"],
+                "password": account["password"],
+                "ctfd_api_token": account["api_token"],
+                "team_name": account["team_name"],
             },
             "model": {
                 "provider": model["provider"],
@@ -720,16 +737,18 @@ def _verify_candidates(ctf, challenge, account, result: SolverResult) -> tuple[s
     candidates = result.flag_candidates[: int(ctf["budget_flag_attempts"])]
     if not candidates:
         return "failed", result.error_message or "Docker solver produced no flag candidates.", 0
-    account_token = account["api_token"] if account is not None else ""
-    auth_value = account_token or ctf["ctfd_token"]
-    auth_type = "token" if account_token else ctf["ctfd_auth_type"]
-    if not auth_value:
-        return "crashed", "CTFd API token is required to verify candidate flags.", 0
+    account_token = str(account["api_token"]).strip() if account is not None else ""
+    if not account_token:
+        return (
+            "crashed",
+            "Per-model CTFd API token is required to verify candidate flags.",
+            0,
+        )
 
     client = CTFdClient(
         base_url=ctf["ctfd_url"],
-        auth_value=auth_value,
-        auth_type=auth_type,
+        auth_value=account_token,
+        auth_type="token",
         timeout=current_app.config["REQUEST_TIMEOUT_SECONDS"],
     )
     attempts = 0
@@ -767,24 +786,32 @@ def create_competition_runs(db, ctf_id: int) -> list[int]:
     missing_accounts = []
     for model in models:
         has_api_key = bool(runtime_settings.provider_api_key(model["provider"]).strip())
-        has_account = ctf_service.get_ctf_account(db, ctf_id, model["id"]) is not None
-        if has_api_key and has_account:
+        account = ctf_service.get_ctf_account(db, ctf_id, model["id"])
+        has_account_token = account is not None and bool(
+            str(account["api_token"]).strip()
+        )
+        if has_api_key and has_account_token:
             ready_models.append(model)
             continue
         if not has_api_key:
             missing_api_keys.append(model["display_name"])
-        if not has_account:
+        if not has_account_token:
             missing_accounts.append(model["display_name"])
 
     if not ready_models:
         details = []
         if missing_api_keys:
-            details.append("missing provider API keys for " + ", ".join(sorted(missing_api_keys)))
+            details.append(
+                "missing provider API keys for " + ", ".join(sorted(missing_api_keys))
+            )
         if missing_accounts:
-            details.append("missing CTFd API tokens/accounts for " + ", ".join(sorted(missing_accounts)))
+            details.append(
+                "missing per-model CTFd API tokens for "
+                + ", ".join(sorted(missing_accounts))
+            )
         raise ValueError(
-            "No enabled model is ready to run. Add a provider API key and CTFd API token "
-            "for at least one model"
+            "No enabled model is ready to run. Add a provider API key and "
+            "per-model CTFd API token for at least one model"
             + (": " + "; ".join(details) if details else ".")
         )
 

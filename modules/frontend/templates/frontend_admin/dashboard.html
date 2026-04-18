@@ -321,7 +321,7 @@
 
         <p class="muted-copy">
           {{ ctf["challenge_count"] }} challenges synced · {{ ctf["run_count"] }} runs created · {{ ctf["completed_runs"] }} runs completed.
-          Start runs every ready enabled model. One model with a provider API key and CTFd API token is enough.
+          Start runs every ready enabled model. Each model needs a provider API key and its own CTFd API token.
         </p>
 
         <div class="account-grid">
@@ -340,7 +340,7 @@
               </label>
               <label>
                 <span>Username</span>
-                <input type="text" name="username" value="{{ account.value['username'] if account.value else '' }}" placeholder="Optional fallback login">
+                <input type="text" name="username" value="{{ account.value['username'] if account.value else '' }}" placeholder="Optional account note">
               </label>
               <label>
                 <span>Password{% if account.value and account.value['password'] %} · configured{% endif %}</span>

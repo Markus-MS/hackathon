@@ -347,8 +347,11 @@ def upsert_account(ctf_id: int, model_id: int):
         password = password or existing["password"]
         api_token = api_token or existing["api_token"]
 
-    if not api_token and not (username and password):
-        flash("Add a CTFd API token, or provide both username and password.", "error")
+    if not api_token:
+        flash(
+            "Add a per-model CTFd API token. Username and password are only notes for the solver.",
+            "error",
+        )
         return redirect(url_for("admin.dashboard"))
 
     ctf_service.upsert_ctf_account(
