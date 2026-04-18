@@ -1,16 +1,16 @@
 {% extends "frontend_base.html" %}
+{% set show_ctf_nav = true %}
 
 {% block title %}{{ app_name }} Details{% endblock %}
 
 {% block content %}
-  <section class="panel details-panel">
+  <section class="details-panel">
     <p class="eyebrow">Details</p>
     <h1 id="title">Details</h1>
     <p class="subtitle" id="summary">Loading active CTF metadata...</p>
     <div class="meta" id="meta"></div>
     <div id="challenge-overview" class="challenge-overview-grid" hidden></div>
     <section id="terminal-grid" class="terminal-grid" hidden></section>
-    <a class="details-link" href="{{ url_for('frontend.index') }}">Back Home</a>
   </section>
 {% endblock %}
 
@@ -18,6 +18,7 @@
   <script>
     const challengeApiUrl = {{ challenge_api_url|tojson }};
     const detailsApiUrl = {{ details_api_url|tojson }};
+    const dashboardNavApiUrl = {{ url_for('frontend.api_dashboard')|tojson }};
     const rerunBaseUrl = {{ url_for('admin.rerun_challenge_run', challenge_run_id=0)|tojson }};
     const terminalSockets = new Map();
 
@@ -32,6 +33,44 @@
       card.className = "meta-card";
       card.textContent = `${label}: ${value}`;
       meta.appendChild(card);
+    }
+
+    function ctfUrl(ctfId) {
+      return `/ctfs/${encodeURIComponent(ctfId)}`;
+    }
+
+    function renderCtfNav(data) {
+      const nav = document.getElementById("ctf-nav-buttons");
+      if (!nav) return;
+      nav.replaceChildren();
+
+      const currentId = data.ctf ? Number(data.ctf.id) : null;
+      const seen = new Set();
+      const entries = [];
+      // Keep a deterministic order regardless of the currently selected CTF.
+      for (const item of (data.recent_ctfs || [])) {
+        const id = Number(item.id);
+        if (Number.isNaN(id) || seen.has(id)) continue;
+        entries.push({ id, title: item.title });
+        seen.add(id);
+      }
+      // Ensure active CTF still appears even if missing from recent list.
+      if (data.ctf && data.ctf.id != null && !seen.has(Number(data.ctf.id))) {
+        entries.push({ id: Number(data.ctf.id), title: data.ctf.title });
+        seen.add(Number(data.ctf.id));
+      }
+
+      for (const entry of entries) {
+        const link = document.createElement("a");
+        link.className = "ctf-switch-btn";
+        link.textContent = entry.title;
+        link.href = ctfUrl(entry.id);
+        if (currentId != null && entry.id === currentId) {
+          link.classList.add("is-active");
+          link.setAttribute("aria-current", "page");
+        }
+        nav.appendChild(link);
+      }
     }
 
     function money(value) {
@@ -282,9 +321,6 @@
         meta.className = "terminal-meta";
         const metrics = [
           `Provider: ${row.provider || "n/a"}`,
-          `Cost: ${money(row.cost_usd)}`,
-          `Attempts: ${row.flag_attempts || 0}`,
-          `Turns: ${row.turns || 0}`,
           `Solve Time: ${seconds(row.solve_time_seconds)}`,
         ];
         for (const metric of metrics) {
@@ -330,6 +366,13 @@
         throw new Error("Failed to fetch details");
       }
       const data = await response.json();
+      const navResponse = await fetch(dashboardNavApiUrl);
+      if (navResponse.ok) {
+        const navData = await navResponse.json();
+        renderCtfNav({ ctf: data.ctf, recent_ctfs: navData.recent_ctfs || [] });
+      } else {
+        renderCtfNav({ ctf: data.ctf, recent_ctfs: [] });
+      }
       document.getElementById("meta").replaceChildren();
       setText("title", data.challenge?.name || "Challenge");
       setText(
@@ -346,6 +389,13 @@
         throw new Error("Failed to fetch details");
       }
       const data = await response.json();
+      const navResponse = await fetch(dashboardNavApiUrl);
+      if (navResponse.ok) {
+        const navData = await navResponse.json();
+        renderCtfNav({ ctf: data.ctf, recent_ctfs: navData.recent_ctfs || [] });
+      } else {
+        renderCtfNav({ ctf: data.ctf, recent_ctfs: [] });
+      }
       const meta = document.getElementById("meta");
       meta.replaceChildren();
 

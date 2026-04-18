@@ -714,6 +714,32 @@ def _redact_secrets(text: str, secrets: list[str]) -> str:
     return redacted
 
 
+def _extract_opencode_error_message(text: str) -> str:
+    for raw_line in text.splitlines():
+        raw_line = raw_line.strip()
+        if not raw_line:
+            continue
+        try:
+            event = json.loads(raw_line)
+        except json.JSONDecodeError:
+            continue
+        if event.get("type") != "error":
+            continue
+        err_data = event.get("error") or {}
+        if not isinstance(err_data, dict):
+            return str(err_data)
+        nested = err_data.get("data") or {}
+        if isinstance(nested, dict):
+            message = nested.get("message")
+            if message:
+                return str(message)
+        message = err_data.get("message")
+        if message:
+            return str(message)
+        return str(err_data)
+    return ""
+
+
 def _model_options(model) -> dict[str, object]:
     options: dict[str, object] = {}
     provider = _opencode_provider_id(model["provider"])
@@ -790,16 +816,35 @@ Team: {account['team_name'] if account is not None else ''}
 """
 
 
-def _opencode_prompt(challenge_name: str) -> str:
+def _opencode_prompt(
+    challenge_name: str,
+    *,
+    attempt_number: int = 1,
+    retry_hint: str = "",
+) -> str:
+    retry_block = ""
+    if retry_hint:
+        retry_block = f"""
+
+Retry context:
+- This is attempt {attempt_number}.
+- Previous attempt did not produce any usable flag candidate.
+- Fix the previous mistake and continue from the challenge files, not from scratch.
+- Guidance: {retry_hint}
+"""
+
     return f"""Solve the CTF challenge "{challenge_name}".
 
-Use the files in this workspace as your source of truth. You may run shell commands,
+Your current working directory is `/workspace/challenge`. Treat this directory as the
+workspace root. Use relative paths like `./CHALLENGE.md`, `./AGENTS.md`, and
+`./result/flags.txt` instead of `/workspace/...` paths. You may run shell commands,
 write helper scripts, download challenge files from CTFd if needed, and inspect any
 artifacts you create. Do not submit flags to CTFd yourself.
+{retry_block}
 
-When you have a candidate, write it to `/workspace/result/flags.txt`, one candidate
-per line. Also write `/workspace/result/report.md` with a short explanation of what
-you tried. If you cannot solve it, write the reason to the report and leave
+When you have a candidate, write it to `./result/flags.txt`, one
+candidate per line. Also write `./result/report.md` with a short
+explanation of what you tried. If you cannot solve it, write the reason to the report and leave
 `flags.txt` empty.
 """
 
@@ -809,11 +854,13 @@ def _opencode_agents_file() -> str:
 
 The contract for this workspace is strict:
 - Never submit flags to CTFd yourself.
-- Write every candidate flag to `/workspace/result/flags.txt`, one candidate per line.
+- Your workspace root is the current directory: `/workspace/challenge`.
+- Use relative paths from the current directory, such as `./CHALLENGE.md` and `./result/flags.txt`.
+- Write every candidate flag to `./result/flags.txt`, one candidate per line.
 - Prefer exact flags only; do not write prose or guesses around a flag line.
-- If you need structured output, also write `/workspace/result/flags.json` as either
+- If you need structured output, also write `./result/flags.json` as either
   a JSON array of strings or an object with a `flag_candidates` array.
-- Keep large scratch files under `/workspace/challenge`.
+- Keep large scratch files under the current directory.
 """
 
 
@@ -899,6 +946,33 @@ def _collect_flag_candidates(result_path: Path, *, flag_regex: str, transcript: 
     return unique
 
 
+def _retry_hint_from_result(result: SolverResult) -> str:
+    transcript = result.transcript_excerpt or ""
+    combined = f"{result.error_message}\n{transcript}".lower()
+    hints: list[str] = []
+    if "external_directory" in combined or "/workspace/" in combined:
+        hints.append(
+            "Use only relative paths from the current directory such as ./CHALLENGE.md and ./result/flags.txt."
+        )
+    if '"name":"glob"' in transcript or '"tool":"glob"' in transcript or "\nls\n" in transcript:
+        hints.append(
+            "Do not stop after listing files. Read ./CHALLENGE.md first, then inspect or download the actual challenge artifact."
+        )
+    if "challenge title missing" in combined:
+        hints.append(
+            "The challenge metadata is incomplete; rely on ./CHALLENGE.md and downloaded artifacts rather than the title."
+        )
+    if "no flag candidates" in combined or not result.flag_candidates:
+        hints.append(
+            "You must either write an exact candidate to ./result/flags.txt or state the exact CIT{...} flag in your final response."
+        )
+    if not hints:
+        hints.append(
+            "Read ./CHALLENGE.md immediately, inspect any downloaded artifact, and avoid wasting the attempt on setup-only commands."
+        )
+    return " ".join(hints)
+
+
 class DockerSolverBackend:
     def execute(
         self,
@@ -972,7 +1046,13 @@ class DockerSolverBackend:
             "-e",
             "OPENCODE_EXPERIMENTAL_OUTPUT_TOKEN_MAX",
             "-e",
+            "HOME",
+            "-e",
             "XDG_CACHE_HOME",
+            "-e",
+            "XDG_CONFIG_HOME",
+            "-e",
+            "XDG_DATA_HOME",
             "-e",
             "XDG_STATE_HOME",
         ]
@@ -1002,7 +1082,10 @@ class DockerSolverBackend:
             int(settings["solver_command_timeout_seconds"]) * 1000
         )
         env["OPENCODE_EXPERIMENTAL_OUTPUT_TOKEN_MAX"] = "4096"
+        env["HOME"] = "/workspace"
         env["XDG_CACHE_HOME"] = "/workspace/.cache"
+        env["XDG_CONFIG_HOME"] = "/workspace/.config"
+        env["XDG_DATA_HOME"] = "/workspace/.local/share"
         env["XDG_STATE_HOME"] = "/workspace/.state"
 
         timeout_seconds = max(
@@ -1050,7 +1133,10 @@ class DockerSolverBackend:
                 challenge_path.mkdir()
                 result_path.mkdir()
                 (tmp_path / ".cache").mkdir()
+                (tmp_path / ".config").mkdir()
+                (tmp_path / ".local" / "share").mkdir(parents=True, exist_ok=True)
                 (tmp_path / ".state").mkdir()
+                (challenge_path / "result").symlink_to(result_path, target_is_directory=True)
                 (challenge_path / "CHALLENGE.md").write_text(
                     _challenge_markdown(ctf=ctf, challenge=challenge, account=account),
                     encoding="utf-8",
@@ -1091,6 +1177,8 @@ class DockerSolverBackend:
                     "--rm",
                     "--name",
                     container_name,
+                    "--user",
+                    f"{os.getuid()}:{os.getgid()}",
                     "--network",
                     settings["solver_network"],
                     "--cpus",
@@ -1110,7 +1198,11 @@ class DockerSolverBackend:
                     "json",
                     "--title",
                     f"CTFArena: {challenge['name']}",
-                    _opencode_prompt(challenge["name"]),
+                    _opencode_prompt(
+                        challenge["name"],
+                        attempt_number=attempt_number,
+                        retry_hint=retry_hint,
+                    ),
                 ]
 
                 proc = subprocess.Popen(
@@ -1160,6 +1252,7 @@ class DockerSolverBackend:
                     ((stdout or "") + "\n" + (stderr or ""))[-12000:],
                     secrets,
                 )
+                first_error = _extract_opencode_error_message(transcript)
                 candidates = _collect_flag_candidates(
                     result_path,
                     flag_regex=ctf["flag_regex"],
@@ -1197,7 +1290,7 @@ class DockerSolverBackend:
                 error_message="Challenge stopped: another model solved it and the grace period expired.",
             )
 
-        if proc.returncode != 0 and not candidates:
+        if (proc.returncode != 0 or first_error) and not candidates:
             metric_count("ctfarena.docker.crash", 1, tags={"provider": model["provider"]})
             return SolverResult(
                 status="crashed",
@@ -1210,7 +1303,7 @@ class DockerSolverBackend:
                 solve_time_seconds=None,
                 transcript_excerpt=transcript[-4000:],
                 flag_candidates=[],
-                error_message=transcript[-4000:] or f"OpenCode exited with {proc.returncode}.",
+                error_message=first_error or transcript[-4000:] or f"OpenCode exited with {proc.returncode}.",
             )
 
         metric_distribution(
@@ -1980,7 +2073,7 @@ def _verify_candidates(ctf, challenge, account, result: SolverResult) -> tuple[s
             )
         if response["correct"]:
             metric_count("ctfarena.challenge.solve", 1, tags={"challenge_id": str(challenge["id"])})
-            return "solved", f"Accepted candidate on attempt {attempts}.", attempts
+            return "solved", f"Accepted candidate on attempt {attempts}: {candidate}", attempts
     return "failed", last_message or "No candidate was accepted by CTFd.", attempts
 
 
@@ -2054,47 +2147,59 @@ def create_competition_runs(db, ctf_id: int, *, sentry_debug: bool = False) -> l
         ).fetchone()
 
         if existing is None:
+            insert_columns = [
+                "ctf_event_id",
+                "model_id",
+                "mode",
+                "tool",
+                "model",
+                "model_version",
+                "sandbox_digest",
+                "ctfarena_commit",
+                "prompt_template_hash",
+                "status",
+                "budget_wall_seconds",
+                "budget_input_tokens",
+                "budget_output_tokens",
+                "budget_usd",
+                "budget_flag_attempts",
+                "debug_mode",
+                "created_at",
+                "updated_at",
+            ]
+            insert_values: list[object] = [
+                ctf_id,
+                model["id"],
+                "competition",
+                tool_name,
+                model["model_name"],
+                "",
+                ctf["sandbox_digest"],
+                current_app.config["CTF_ARENA_COMMIT"],
+                ctf["prompt_template_hash"],
+                "queued",
+                ctf["budget_wall_seconds"],
+                ctf["budget_input_tokens"],
+                ctf["budget_output_tokens"],
+                ctf["budget_usd"],
+                ctf["budget_flag_attempts"],
+                1 if sentry_debug else 0,
+                now,
+                now,
+            ]
+            if has_legacy_flagfarm_commit:
+                insert_columns.append("flagfarm_commit")
+                insert_values.append(current_app.config["CTF_ARENA_COMMIT"])
+
+            placeholders = ", ".join("?" for _ in insert_columns)
             cursor = db.execute(
-                """
+                f"""
                 INSERT INTO competition_runs (
-                    ctf_event_id,
-                    model_id,
-                    mode,
-                    tool,
-                    model,
-                    model_version,
-                    sandbox_digest,
-                    ctfarena_commit,
-                    prompt_template_hash,
-                    status,
-                    budget_wall_seconds,
-                    budget_input_tokens,
-                    budget_output_tokens,
-                    budget_usd,
-                    budget_flag_attempts,
-                    debug_mode,
-                    created_at,
-                    updated_at
+                    {", ".join(insert_columns)}
                 )
-                VALUES (?, ?, 'competition', ?, ?, '', ?, ?, ?, 'queued', ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES ({placeholders})
                 """,
-                (
-                    ctf_id,
-                    model["id"],
-                    tool_name,
-                    model["model_name"],
-                    ctf["sandbox_digest"],
-                    current_app.config["CTF_ARENA_COMMIT"],
-                    ctf["prompt_template_hash"],
-                    ctf["budget_wall_seconds"],
-                    ctf["budget_input_tokens"],
-                    ctf["budget_output_tokens"],
-                    ctf["budget_usd"],
-                    ctf["budget_flag_attempts"],
-                    1 if sentry_debug else 0,
-                    now,
-                    now,
-                ),
+                tuple(insert_values),
             )
             competition_run_id = int(cursor.lastrowid)
         else:
@@ -2383,7 +2488,14 @@ class OpencodeSolverBackend:
         )
 
         flag_regex = ctf["flag_regex"]
-        prompt = self._build_prompt(ctf, challenge, account, flag_regex)
+        prompt = self._build_prompt(
+            ctf,
+            challenge,
+            account,
+            flag_regex,
+            attempt_number=attempt_number,
+            retry_hint=retry_hint,
+        )
 
         logger.info(
             "[opencode] Starting solver — challenge=%r model=%s timeout=%ds max_turns=%s llm_timeout=%s",
@@ -2642,7 +2754,7 @@ class OpencodeSolverBackend:
                 flag_candidates=flag_candidates,
                 error_message="Challenge stopped: another model solved it and the grace period expired.",
             )
-        if proc.returncode != 0 and not flag_candidates:
+        if (proc.returncode != 0 or first_error) and not flag_candidates:
             logger.error(
                 "[opencode] Returning crashed for challenge=%r returncode=%d first_error=%r",
                 challenge["name"],
@@ -2685,7 +2797,24 @@ class OpencodeSolverBackend:
         )
 
     @staticmethod
-    def _build_prompt(ctf, challenge, account, flag_regex: str) -> str:
+    def _build_prompt(
+        ctf,
+        challenge,
+        account,
+        flag_regex: str,
+        *,
+        attempt_number: int = 1,
+        retry_hint: str = "",
+    ) -> str:
+        retry_block = ""
+        if retry_hint:
+            retry_block = f"""
+
+## Retry context
+This is attempt {attempt_number}. The previous attempt produced no usable flag candidate.
+Guidance: {retry_hint}
+"""
+
         return f"""\
 # CTF Challenge: {challenge["name"]}
 
@@ -2711,6 +2840,7 @@ Team: {account.get("team_name", "")}
 Find the flag. Use bash commands to interact with the challenge service, decode
 data, run exploits, or whatever the category requires. When you find the flag,
 output it clearly so it can be recognised by the pattern above.
+{retry_block}
 """
 
 
@@ -3219,45 +3349,185 @@ class CompetitionManager:
                             cached_input_tokens=result.cached_input_tokens,
                             reasoning_tokens=result.reasoning_tokens,
                         )
-                    logger.info(
-                        "[competition] challenge_run_id=%d cost_usd=%.6f rate_key=%s",
-                        challenge_run_id,
-                        cost_usd,
-                        model["rate_key"],
-                    )
-                    budget_status, budget_error = _apply_budget(
-                        competition_run,
-                        result,
-                        cost_usd,
-                    )
-                    if budget_status == "budget_exhausted":
-                        final_status = budget_status
-                        final_error = budget_error
-                        flag_attempts = result.flag_attempts
-                        capture_message(
-                            f"Budget exhausted for challenge {challenge['name']}",
-                            level="warning",
-                            tags={
-                                "competition_run_id": competition_run_id,
-                                "challenge_id": challenge["id"],
-                                "provider": model["provider"],
-                            },
-                            context={"cost_usd": cost_usd, "debug_mode": debug_mode},
+                        db.commit()
+                        logger.info(
+                            "[competition] challenge_run_id=%d challenge=%r model=%s — attempt %d/%d via %s",
+                            challenge_run_id,
+                            challenge["name"],
+                            model["display_name"],
+                            attempt_number,
+                            max_attempts,
+                            type(self.backend).__name__,
                         )
-                    else:
-                        final_status, final_error, flag_attempts = _verify_candidates(
+                        _log_event(
+                            db,
+                            competition_run_id=competition_run_id,
+                            challenge_run_id=challenge_run_id,
+                            level="info",
+                            message=(
+                                f"Started challenge {challenge['name']}."
+                                if attempt_number == 1
+                                else f"Retrying challenge {challenge['name']} (attempt {attempt_number}/{max_attempts})."
+                            ),
+                            details={
+                                "remote_id": challenge["remote_id"],
+                                "attempt": attempt_number,
+                                "max_attempts": max_attempts,
+                            },
+                        )
+
+                        retry_hint = "" if attempt_number == 1 else _retry_hint_from_result(result)
+                        result = self.backend.execute(
+                            ctf=ctf,
+                            model=model,
+                            challenge=challenge,
+                            account=account,
+                            competition_run=competition_run,
+                            stop_event=stop_event,
+                            attempt_number=attempt_number,
+                            retry_hint=retry_hint,
+                        )
+                        transcript_parts.append(
+                            f"=== Attempt {attempt_number}/{max_attempts} ===\n{result.transcript_excerpt}"
+                        )
+                        total_input_tokens += result.input_tokens
+                        total_output_tokens += result.output_tokens
+                        total_reasoning_tokens += result.reasoning_tokens
+                        total_cached_input_tokens += result.cached_input_tokens
+                        total_turns += result.turns
+                        total_flag_attempts += result.flag_attempts
+                        if result.solve_time_seconds is not None:
+                            total_solve_time_seconds += result.solve_time_seconds
+                        final_candidates = result.flag_candidates
+
+                        aggregate_result = SolverResult(
+                            status=result.status,
+                            input_tokens=total_input_tokens,
+                            output_tokens=total_output_tokens,
+                            reasoning_tokens=total_reasoning_tokens,
+                            cached_input_tokens=total_cached_input_tokens,
+                            flag_attempts=total_flag_attempts,
+                            turns=total_turns,
+                            solve_time_seconds=(
+                                total_solve_time_seconds if total_solve_time_seconds > 0 else None
+                            ),
+                            transcript_excerpt="\n\n".join(transcript_parts)[-12000:],
+                            flag_candidates=result.flag_candidates,
+                            error_message=result.error_message,
+                        )
+                        logger.info(
+                            "[competition] challenge_run_id=%d challenge=%r backend result: "
+                            "attempt=%d/%d status=%s turns=%d candidates=%d in=%d out=%d reasoning=%d cached=%d error=%r",
+                            challenge_run_id,
+                            challenge["name"],
+                            attempt_number,
+                            max_attempts,
+                            result.status,
+                            result.turns,
+                            len(result.flag_candidates),
+                            result.input_tokens,
+                            result.output_tokens,
+                            result.reasoning_tokens,
+                            result.cached_input_tokens,
+                            result.error_message[:200] if result.error_message else None,
+                        )
+
+                        with start_span(
+                            op="competition.cost",
+                            name="competition.estimate_cost",
+                            attributes={"rate_key": model["rate_key"], "challenge_id": challenge["id"]},
+                        ):
+                            attempt_cost_usd = pricing.estimate_cost(
+                                model["rate_key"],
+                                input_tokens=result.input_tokens,
+                                output_tokens=result.output_tokens,
+                                cached_input_tokens=result.cached_input_tokens,
+                                reasoning_tokens=result.reasoning_tokens,
+                            )
+                        total_cost_usd += attempt_cost_usd
+                        logger.info(
+                            "[competition] challenge_run_id=%d attempt=%d/%d cost_usd=%.6f rate_key=%s",
+                            challenge_run_id,
+                            attempt_number,
+                            max_attempts,
+                            attempt_cost_usd,
+                            model["rate_key"],
+                        )
+
+                        budget_status, budget_error = _apply_budget(
+                            competition_run,
+                            aggregate_result,
+                            total_cost_usd,
+                        )
+                        if budget_status == "budget_exhausted":
+                            final_status = budget_status
+                            final_error = budget_error
+                            capture_message(
+                                f"Budget exhausted for challenge {challenge['name']}",
+                                level="warning",
+                                tags={
+                                    "competition_run_id": competition_run_id,
+                                    "challenge_id": challenge["id"],
+                                    "provider": model["provider"],
+                                },
+                                context={"cost_usd": total_cost_usd, "debug_mode": debug_mode},
+                            )
+                            break
+
+                        final_status, final_error, attempt_flag_attempts = _verify_candidates(
                             ctf,
                             challenge,
                             account,
                             result,
                         )
-                    logger.info(
-                        "[competition] challenge_run_id=%d final: status=%s flag_attempts=%d error=%r",
-                        challenge_run_id,
-                        final_status,
-                        flag_attempts,
-                        final_error[:200] if final_error else None,
-                    )
+                        total_flag_attempts += attempt_flag_attempts
+                        logger.info(
+                            "[competition] challenge_run_id=%d attempt=%d/%d final=%s flag_attempts=%d error=%r",
+                            challenge_run_id,
+                            attempt_number,
+                            max_attempts,
+                            final_status,
+                            attempt_flag_attempts,
+                            final_error[:200] if final_error else None,
+                        )
+
+                        should_retry = (
+                            final_status == "failed"
+                            and attempt_flag_attempts == 0
+                            and not result.flag_candidates
+                            and attempt_number < max_attempts
+                            and not stop_event.is_set()
+                        )
+                        if should_retry:
+                            retry_hint = _retry_hint_from_result(result)
+                            _log_event(
+                                db,
+                                competition_run_id=competition_run_id,
+                                challenge_run_id=challenge_run_id,
+                                level="info",
+                                message=(
+                                    f"Attempt {attempt_number} produced no flag candidates; retrying."
+                                ),
+                                details={
+                                    "attempt": attempt_number,
+                                    "next_attempt": attempt_number + 1,
+                                    "max_attempts": max_attempts,
+                                    "retry_hint": retry_hint,
+                                },
+                            )
+                            continue
+                        break
+
+                    if (
+                        final_status == "failed"
+                        and total_flag_attempts == 0
+                        and not final_candidates
+                        and max_attempts > 1
+                    ):
+                        final_error = (
+                            f"Docker solver produced no flag candidates after {min(max_attempts, max(1, attempt_number))} attempts."
+                        )
+
                     ended_at = utc_now()
                     db.execute(
                         """
@@ -3281,15 +3551,15 @@ class CompetitionManager:
                         (
                             final_status,
                             ended_at,
-                            result.input_tokens,
-                            result.output_tokens,
-                            result.reasoning_tokens,
-                            result.cached_input_tokens,
-                            cost_usd,
-                            flag_attempts,
-                            result.turns,
-                            result.solve_time_seconds if final_status == "solved" else None,
-                            result.transcript_excerpt,
+                            total_input_tokens,
+                            total_output_tokens,
+                            total_reasoning_tokens,
+                            total_cached_input_tokens,
+                            total_cost_usd,
+                            total_flag_attempts,
+                            total_turns,
+                            total_solve_time_seconds if final_status == "solved" and total_solve_time_seconds > 0 else None,
+                            "\n\n".join(transcript_parts)[-12000:],
                             final_error,
                             ended_at,
                             challenge_run_id,
@@ -3307,13 +3577,13 @@ class CompetitionManager:
                     )
                     metric_distribution(
                         "ctfarena.challenge.cost_usd",
-                        cost_usd,
+                        total_cost_usd,
                         tags={"status": final_status, "provider": model["provider"]},
                     )
-                    if result.solve_time_seconds is not None:
+                    if total_solve_time_seconds > 0:
                         metric_distribution(
                             "ctfarena.challenge.solve_time_seconds",
-                            result.solve_time_seconds,
+                            total_solve_time_seconds,
                             tags={"status": final_status, "provider": model["provider"]},
                         )
                     _log_event(
@@ -3324,10 +3594,14 @@ class CompetitionManager:
                         message=f"Challenge {challenge['name']} ended as {final_status}.",
                         details={
                             "remote_id": challenge["remote_id"],
-                            "candidate_count": len(result.flag_candidates),
-                            "flag_attempts": flag_attempts,
-                            "cost_usd": cost_usd,
+                            "candidate_count": len(final_candidates),
+                            "flag_attempts": total_flag_attempts,
+                            "cost_usd": total_cost_usd,
                             "error": final_error,
+                            "attempts_used": db.execute(
+                                "SELECT attempt_index FROM challenge_runs WHERE id = ?",
+                                (challenge_run_id,),
+                            ).fetchone()["attempt_index"],
                         },
                     )
                     _refresh_run_totals(db, competition_run_id)
@@ -3443,7 +3717,10 @@ class CompetitionManager:
                 )
                 metric_count("ctfarena.run.started", 1, tags={"provider": model["provider"]})
 
-        grace_seconds = max(0, runtime_settings.positive_int("solver_grace_period_seconds"))
+        with self.app.app_context():
+            grace_seconds = max(
+                0, runtime_settings.positive_int("solver_grace_period_seconds")
+            )
         for challenge in challenges:
             with self.app.app_context():
                 db = get_db()

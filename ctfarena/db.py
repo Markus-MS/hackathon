@@ -57,6 +57,21 @@ def migrate_db(db: sqlite3.Connection) -> None:
         row["name"]
         for row in db.execute("PRAGMA table_info(competition_runs)").fetchall()
     }
+    if "ctfarena_commit" not in competition_run_columns:
+        db.execute(
+            """
+            ALTER TABLE competition_runs
+            ADD COLUMN ctfarena_commit TEXT NOT NULL DEFAULT ''
+            """
+        )
+        if "flagfarm_commit" in competition_run_columns:
+            db.execute(
+                """
+                UPDATE competition_runs
+                SET ctfarena_commit = flagfarm_commit
+                WHERE ctfarena_commit = ''
+                """
+            )
     if "debug_mode" not in competition_run_columns:
         db.execute(
             """

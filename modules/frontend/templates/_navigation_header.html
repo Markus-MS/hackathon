@@ -1,0 +1,26 @@
+<header class="top-header">
+  <div class="top-header-inner">
+    <a class="brand plain-brand" href="{{ url_for('frontend.index') }}">
+      <span>CTFArena</span>
+    </a>
+    {% if show_ctf_nav %}
+      <div class="ctf-nav-buttons" id="ctf-nav-buttons"></div>
+    {% else %}
+      <div class="nav-links">
+        <a class="nav-link" href="{{ url_for('frontend.index') }}">Leaderboard</a>
+        <a class="nav-link" href="{{ url_for('frontend.details') }}">Details</a>
+        {% if session.get('is_admin') %}
+          <form method="post" action="{{ url_for('admin.logout') }}">
+            <button type="submit" class="nav-button">Log Out</button>
+          </form>
+        {% endif %}
+      </div>
+    {% endif %}
+    <a
+      class="sentry-watch-btn"
+      href="https://ernesto-az.sentry.io/insights/backend/?project=4511240223653968&statsPeriod=1h"
+      target="_blank"
+      rel="noopener noreferrer"
+    >Watch in Sentry Dashboard</a>
+  </div>
+</header>

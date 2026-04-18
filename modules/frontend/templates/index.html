@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>{{ app_name }}</title>
+  <title>CTFArena</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@600;700&family=PT+Mono&family=Roboto:wght@400;500;700&display=swap" rel="stylesheet">
@@ -71,16 +71,9 @@
 </head>
 <body>
   <main>
+    {% set show_ctf_nav = true %}
+    {% include "_navigation_header.html" %}
     <section class="shell">
-      <nav class="nav">
-        <a class="brand" href="{{ url_for('frontend.index') }}">
-          <span class="brand-mark"></span>
-          <span>{{ app_name }}</span>
-        </a>
-        <div class="nav-title" id="ctf-title">Local Test CTF</div>
-        <div class="nav-spacer" aria-hidden="true"></div>
-      </nav>
-
       <header class="hero">
         <div class="summary-grid">
           <div class="summary-tile">
@@ -145,27 +138,18 @@
                 <th>Model</th>
                 <th>Score</th>
                 <th>Solves</th>
-                <th>Cost</th>
                 <th>Provider</th>
               </tr>
             </thead>
             <tbody id="leaderboard-body">
               <tr>
-                <td colspan="6" class="message">Loading leaderboard...</td>
+                <td colspan="5" class="message">Loading leaderboard...</td>
               </tr>
             </tbody>
           </table>
         </div>
       </section>
 
-      <section class="archive-section">
-        <div class="section-head">
-          <div>
-            <p class="eyebrow">CTF Events</p>
-          </div>
-        </div>
-        <div class="archive-grid" id="archive-grid"></div>
-      </section>
     </section>
   </main>
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.8/dist/chart.umd.min.js"></script>
@@ -190,6 +174,10 @@
       return `/ctfs/${encodeURIComponent(ctfId)}/challenges/${encodeURIComponent(challengeId)}/details`;
     }
 
+    function ctfUrl(ctfId) {
+      return `/ctfs/${encodeURIComponent(ctfId)}`;
+    }
+
     function money(value) {
       return `$${Number(value || 0).toFixed(4)}`;
     }
@@ -202,6 +190,15 @@
       if (normalized.includes("4o")) return "4o";
       if (normalized.includes("o4")) return "o4";
       return "AI";
+    }
+
+    function modelProductIcon(modelName) {
+      const normalized = modelName.toLowerCase();
+      if (normalized.includes("codex")) return { text: "CX", type: "codex" };
+      if (normalized.includes("gpt") || normalized.includes("openai")) return { text: "OA", type: "openai" };
+      if (normalized.includes("claude") || normalized.includes("anthropic")) return { text: "CL", type: "anthropic" };
+      if (normalized.includes("gemini") || normalized.includes("google")) return { text: "GE", type: "google" };
+      return { text: "AI", type: "default" };
     }
 
     function createSolvedFlag(title) {
@@ -312,11 +309,7 @@
     }
 
     function renderHeader(data) {
-      if (!data.ctf) {
-        setText("ctf-title", "No Active CTF");
-      } else {
-        setText("ctf-title", data.ctf.title);
-      }
+      renderCtfNav(data);
 
       const byCategory = new Map();
       const byDifficulty = new Map();
@@ -361,6 +354,40 @@
       );
     }
 
+    function renderCtfNav(data) {
+      const nav = document.getElementById("ctf-nav-buttons");
+      nav.replaceChildren();
+
+      const currentId = data.ctf ? Number(data.ctf.id) : null;
+      const seen = new Set();
+      const entries = [];
+
+      // Keep a deterministic order regardless of the currently selected CTF.
+      for (const item of (data.recent_ctfs || [])) {
+        const id = Number(item.id);
+        if (Number.isNaN(id) || seen.has(id)) continue;
+        entries.push({ id, title: item.title });
+        seen.add(id);
+      }
+      // Ensure active CTF still appears even if missing from recent list.
+      if (data.ctf && data.ctf.id != null && !seen.has(Number(data.ctf.id))) {
+        entries.push({ id: Number(data.ctf.id), title: data.ctf.title });
+        seen.add(Number(data.ctf.id));
+      }
+
+      for (const entry of entries) {
+        const link = document.createElement("a");
+        link.className = "ctf-switch-btn";
+        link.textContent = entry.title;
+        link.href = ctfUrl(entry.id);
+        if (currentId != null && entry.id === currentId) {
+          link.classList.add("is-active");
+          link.setAttribute("aria-current", "page");
+        }
+        nav.appendChild(link);
+      }
+    }
+
     function renderMatrix(data) {
       const headRow = document.getElementById("matrix-head");
       const body = document.getElementById("matrix-body");
@@ -368,7 +395,10 @@
       body.replaceChildren();
 
       const modelHead = document.createElement("th");
-      modelHead.textContent = "Model";
+      const modelHeadLabel = document.createElement("span");
+      modelHeadLabel.className = "matrix-model-head-rot";
+      modelHeadLabel.textContent = "Model";
+      modelHead.appendChild(modelHeadLabel);
       headRow.appendChild(modelHead);
 
       for (const challenge of data.challenges) {
@@ -406,18 +436,19 @@
         const row = document.createElement("tr");
         const label = document.createElement("th");
         label.scope = "row";
-
-        const labelWrap = document.createElement("span");
-        labelWrap.className = "model-label";
-        const logo = document.createElement("span");
-        logo.className = "model-logo";
-        logo.textContent = modelLogoText(model.name);
-        logo.style.borderColor = model.color || "rgba(17, 19, 24, 0.08)";
-        logo.style.background = `${model.color || "#cfd4dc"}1f`;
-        const name = document.createElement("strong");
+        const wrap = document.createElement("span");
+        wrap.className = "model-label-inline";
+        const iconInfo = modelProductIcon(model.name);
+        const icon = document.createElement("span");
+        icon.className = `model-product-icon product-${iconInfo.type}`;
+        icon.textContent = iconInfo.text;
+        icon.title = model.name;
+        const name = document.createElement("span");
+        name.className = "model-name-text";
         name.textContent = model.name;
-        labelWrap.append(logo, name);
-        label.appendChild(labelWrap);
+        wrap.append(icon, name);
+        label.appendChild(wrap);
+        label.title = model.name;
         row.appendChild(label);
 
         for (const cellData of model.cells) {
@@ -449,7 +480,7 @@
       if (!rows.length) {
         const row = document.createElement("tr");
         const cell = document.createElement("td");
-        cell.colSpan = 6;
+        cell.colSpan = 5;
         cell.className = "message";
         cell.textContent = "No model runs have been scored yet.";
         row.appendChild(cell);
@@ -491,7 +522,7 @@
         gaugeCell.appendChild(gauge);
         tr.appendChild(gaugeCell);
 
-        for (const value of [money(row.total_usd), row.provider]) {
+        for (const value of [row.provider]) {
           const cell = document.createElement("td");
           cell.textContent = value;
           tr.appendChild(cell);
@@ -500,33 +531,6 @@
         body.appendChild(tr);
         const percent = renderSolveGauge(canvas, row.solves, row.attempted);
         label.textContent = `${percent}%`;
-      }
-    }
-
-    function renderArchive(items) {
-      const grid = document.getElementById("archive-grid");
-      grid.replaceChildren();
-
-      if (!items.length) {
-        const message = document.createElement("p");
-        message.className = "message";
-        message.textContent = "No archived CTFs yet.";
-        grid.appendChild(message);
-        return;
-      }
-
-      for (const item of items) {
-        const link = document.createElement("a");
-        link.className = "archive-card";
-        link.href = item.url;
-
-        const title = document.createElement("strong");
-        title.textContent = item.title;
-        const meta = document.createElement("small");
-        meta.textContent = `${item.status} · ${item.challenge_count} challenges · ${item.run_count} runs`;
-
-        link.append(title, meta);
-        grid.appendChild(link);
       }
     }
 
@@ -547,7 +551,6 @@
       renderHeader(data);
       renderMatrix(data);
       renderLeaderboard(data.leaderboard);
-      renderArchive(data.recent_ctfs);
     }
 
     loadDashboard().catch((error) => {
