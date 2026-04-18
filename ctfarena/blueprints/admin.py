@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import logging
+
 from flask import Blueprint, current_app, flash, jsonify, redirect, render_template, request, url_for
 
 from ctfarena.auth import admin_required, is_admin_authenticated, login_admin, logout_admin
@@ -12,6 +14,7 @@ from ctfarena.utils import slugify, utc_now
 
 
 bp = Blueprint("admin", __name__, url_prefix="/admin")
+logger = logging.getLogger(__name__)
 PROVIDER_OPTIONS = ("openai", "anthropic", "google", "deepseek", "openrouter")
 SETTINGS_TABS = ("runtime", "providers", "agents", "observability")
 
@@ -455,9 +458,22 @@ def create_ctf():
 @admin_required
 def activate_ctf(ctf_id: int):
     db = get_db()
-    ctf_service.activate_ctf(db, ctf_id)
+    try:
+        ctf = ctf_service.activate_ctf(db, ctf_id)
+    except ValueError as exc:
+        logger.warning("CTF activation rejected for ctf_id=%d: %s", ctf_id, exc)
+        capture_admin_action("ctf.activate", status="failed", payload={"ctf_id": ctf_id, "reason": str(exc)})
+        flash(str(exc), "error")
+        return redirect(url_for("admin.dashboard"))
+    except Exception as exc:
+        logger.exception("CTF activation failed for ctf_id=%d", ctf_id)
+        capture_exception(exc, tags={"action": "ctf.activate", "ctf_id": ctf_id})
+        capture_admin_action("ctf.activate", status="failed", payload={"ctf_id": ctf_id, "error": type(exc).__name__})
+        flash(f"Failed to activate CTF #{ctf_id}: {type(exc).__name__}: {exc}", "error")
+        return redirect(url_for("admin.dashboard"))
+
     capture_admin_action("ctf.activate", status="success", payload={"ctf_id": ctf_id})
-    flash("Active weekly CTF updated.", "success")
+    flash(f"Active weekly CTF updated to {ctf['title']}.", "success")
     return redirect(url_for("admin.dashboard"))
 
 
@@ -623,6 +639,16 @@ def start_competition(ctf_id: int):
             payload={"ctf_id": ctf_id, "debug_mode": debug_mode},
         )
         flash(str(exc), "error")
+        return redirect(url_for("admin.dashboard"))
+    except Exception as exc:
+        logger.exception("Competition start failed for ctf_id=%d", ctf_id)
+        capture_exception(exc, tags={"action": "competition.start", "ctf_id": ctf_id})
+        capture_admin_action(
+            "competition.start",
+            status="failed",
+            payload={"ctf_id": ctf_id, "debug_mode": debug_mode, "error": type(exc).__name__},
+        )
+        flash(f"Failed to start competition for CTF #{ctf_id}: {type(exc).__name__}: {exc}", "error")
         return redirect(url_for("admin.dashboard"))
 
     run_count = len(run_ids)

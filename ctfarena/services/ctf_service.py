@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 from pathlib import Path
 import re
 import sqlite3
@@ -10,6 +11,8 @@ from flask import current_app
 
 from ctfarena.db import DELETED_MODEL_SLUGS_SETTING, get_setting, set_setting
 from ctfarena.utils import slugify, utc_now
+
+logger = logging.getLogger(__name__)
 
 
 def list_models(db: sqlite3.Connection, *, enabled_only: bool = False):
@@ -83,9 +86,17 @@ def get_ctf(db: sqlite3.Connection, ctf_id: int):
 def get_active_ctf(db: sqlite3.Connection):
     active_id = get_setting("active_ctf_id")
     if active_id:
-        row = get_ctf(db, int(active_id))
-        if row is not None:
-            return row
+        try:
+            active_ctf_id = int(active_id)
+        except (TypeError, ValueError):
+            logger.warning("Ignoring invalid active_ctf_id setting: %r", active_id)
+            set_setting("active_ctf_id", "")
+        else:
+            row = get_ctf(db, active_ctf_id)
+            if row is not None:
+                return row
+            logger.warning("Ignoring stale active_ctf_id setting: %s", active_id)
+            set_setting("active_ctf_id", "")
     return db.execute(
         """
         SELECT
@@ -166,7 +177,11 @@ def create_ctf(db: sqlite3.Connection, payload: dict[str, object]) -> int:
     return int(cursor.lastrowid)
 
 
-def activate_ctf(db: sqlite3.Connection, ctf_id: int) -> None:
+def activate_ctf(db: sqlite3.Connection, ctf_id: int):
+    ctf = get_ctf(db, ctf_id)
+    if ctf is None:
+        raise ValueError(f"Unknown CTF #{ctf_id}.")
+
     now = utc_now()
     db.execute(
         "UPDATE ctf_events SET status = 'archived', updated_at = ? WHERE status = 'active' AND id != ?",
@@ -178,15 +193,20 @@ def activate_ctf(db: sqlite3.Connection, ctf_id: int) -> None:
     )
     db.commit()
     set_setting("active_ctf_id", str(ctf_id))
+    logger.info("Activated CTF #%d (%s)", ctf_id, ctf["title"])
+    return ctf
 
 
 def delete_ctf(db: sqlite3.Connection, ctf_id: int):
     ctf = get_ctf(db, ctf_id)
     if ctf is None:
         return None
-    
+
     db.execute("DELETE FROM ctf_events WHERE id = ?", (ctf_id,))
     db.commit()
+    if get_setting("active_ctf_id") == str(ctf_id):
+        set_setting("active_ctf_id", "")
+        logger.info("Cleared active_ctf_id after deleting CTF #%d", ctf_id)
     return ctf
 
 

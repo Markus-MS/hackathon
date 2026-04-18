@@ -2710,6 +2710,21 @@ def _verify_candidates(
     return "failed", last_message or "No candidate was accepted by CTFd.", attempts
 
 
+def _pending_challenge_run_count(db, competition_run_id: int) -> int:
+    terminal_statuses = tuple(sorted(TERMINAL_CHALLENGE_STATUSES))
+    placeholders = ", ".join("?" for _ in terminal_statuses)
+    row = db.execute(
+        f"""
+        SELECT COUNT(*) AS count
+        FROM challenge_runs
+        WHERE competition_run_id = ?
+          AND status NOT IN ({placeholders})
+        """,
+        (competition_run_id, *terminal_statuses),
+    ).fetchone()
+    return int(row["count"] if row is not None else 0)
+
+
 def create_competition_runs(db, ctf_id: int, *, sentry_debug: bool = False) -> list[int]:
     ctf = ctf_service.get_ctf(db, ctf_id)
     if ctf is None:
@@ -2759,11 +2774,24 @@ def create_competition_runs(db, ctf_id: int, *, sentry_debug: bool = False) -> l
                 "missing per-model CTFd API tokens for "
                 + ", ".join(sorted(missing_accounts))
             )
+        logger.warning(
+            "[competition] no ready models for ctf_id=%d missing_solver_credentials=%s missing_ctfd_accounts=%s",
+            ctf_id,
+            sorted(missing_api_keys),
+            sorted(missing_accounts),
+        )
         raise ValueError(
             "No enabled model is ready to run. Add the required solver access and a CTFd API token "
             "for at least one model"
             + (": " + "; ".join(details) if details else ".")
         )
+    logger.info(
+        "[competition] start readiness ctf_id=%d ready_models=%s missing_solver_credentials=%s missing_ctfd_accounts=%s",
+        ctf_id,
+        [model["display_name"] for model in ready_models],
+        sorted(missing_api_keys),
+        sorted(missing_accounts),
+    )
 
     run_ids: list[int] = []
     now = utc_now()
@@ -2777,7 +2805,7 @@ def create_competition_runs(db, ctf_id: int, *, sentry_debug: bool = False) -> l
         tool_name = _tool_name_for_solver_tool(_solver_tool_for_model(model, settings))
         existing = db.execute(
             """
-            SELECT id
+            SELECT id, status
             FROM competition_runs
             WHERE ctf_event_id = ? AND model_id = ? AND mode = 'competition'
             """,
@@ -2842,17 +2870,10 @@ def create_competition_runs(db, ctf_id: int, *, sentry_debug: bool = False) -> l
             competition_run_id = int(cursor.lastrowid)
         else:
             competition_run_id = int(existing["id"])
-            db.execute(
-                """
-                UPDATE competition_runs
-                SET tool = ?, debug_mode = ?, updated_at = ?
-                WHERE id = ?
-                """,
-                (tool_name, 1 if sentry_debug else 0, now, competition_run_id),
-            )
 
+        inserted_challenge_rows = 0
         for challenge in challenges:
-            db.execute(
+            cursor = db.execute(
                 """
                 INSERT OR IGNORE INTO challenge_runs (
                     competition_run_id,
@@ -2865,10 +2886,66 @@ def create_competition_runs(db, ctf_id: int, *, sentry_debug: bool = False) -> l
                 """,
                 (competition_run_id, challenge["id"], now, now),
             )
+            if cursor.rowcount > 0:
+                inserted_challenge_rows += 1
 
-        run_ids.append(competition_run_id)
+        pending_count = _pending_challenge_run_count(db, competition_run_id)
+        if pending_count > 0:
+            next_status = (
+                "running"
+                if existing is not None and existing["status"] == "running"
+                else "queued"
+            )
+            db.execute(
+                """
+                UPDATE competition_runs
+                SET tool = ?,
+                    debug_mode = ?,
+                    status = ?,
+                    ended_at = NULL,
+                    updated_at = ?
+                WHERE id = ?
+                """,
+                (
+                    tool_name,
+                    1 if sentry_debug else 0,
+                    next_status,
+                    now,
+                    competition_run_id,
+                ),
+            )
+            run_ids.append(competition_run_id)
+            logger.info(
+                "[competition] scheduled run_id=%d ctf_id=%d model=%s pending_challenges=%d inserted_challenges=%d status=%s",
+                competition_run_id,
+                ctf_id,
+                model["display_name"],
+                pending_count,
+                inserted_challenge_rows,
+                next_status,
+            )
+        else:
+            db.execute(
+                """
+                UPDATE competition_runs
+                SET tool = ?, debug_mode = ?, updated_at = ?
+                WHERE id = ?
+                """,
+                (tool_name, 1 if sentry_debug else 0, now, competition_run_id),
+            )
+            logger.info(
+                "[competition] skipping run_id=%d ctf_id=%d model=%s because it has no queued or running challenge rows",
+                competition_run_id,
+                ctf_id,
+                model["display_name"],
+            )
 
     db.commit()
+    if not run_ids:
+        raise ValueError(
+            "No queued challenge runs are available to start. Sync new challenges, rerun a challenge, "
+            "or delete completed competition runs before starting again."
+        )
     return run_ids
 
 
@@ -3357,7 +3434,7 @@ class CompetitionManager:
         stop_event = threading.Event()
         first_solve_event = threading.Event()
 
-        self.executor.submit(
+        future = self.executor.submit(
             self._run_challenge,
             competition_run_id,
             challenge,
@@ -3368,6 +3445,13 @@ class CompetitionManager:
             competition_run,
             stop_event,
             first_solve_event,
+        )
+        future.add_done_callback(
+            lambda done: self._handle_rerun_future_done(
+                challenge_run_id,
+                competition_run_id,
+                done,
+            )
         )
 
     def resume_incomplete_runs(self, *, synchronous: bool = False) -> list[int]:
@@ -3420,11 +3504,140 @@ class CompetitionManager:
         with self._lock:
             future = self._futures.get(ctf_id)
             if future is not None and not future.done():
+                logger.info(
+                    "[competition] ctf_id=%d already has an active coordinator future; run_ids=%s were not resubmitted",
+                    ctf_id,
+                    run_ids,
+                )
                 return
-            self._futures[ctf_id] = self.executor.submit(
+            future = self.executor.submit(
                 self._run_ctf_with_parallel_limit,
                 ctf_id,
                 run_ids,
+            )
+            future.add_done_callback(
+                lambda done: self._handle_ctf_future_done(ctf_id, run_ids, done)
+            )
+            self._futures[ctf_id] = future
+
+    def _handle_ctf_future_done(
+        self,
+        ctf_id: int,
+        run_ids: list[int],
+        future: concurrent.futures.Future[None],
+    ) -> None:
+        if future.cancelled():
+            logger.warning("[competition] ctf_id=%d coordinator future was cancelled", ctf_id)
+            return
+        exc = future.exception()
+        if exc is None:
+            logger.info("[competition] ctf_id=%d coordinator future completed", ctf_id)
+            return
+
+        logger.error(
+            "[competition] ctf_id=%d coordinator future crashed: %s",
+            ctf_id,
+            exc,
+            exc_info=(type(exc), exc, exc.__traceback__),
+        )
+        with self.app.app_context():
+            db = get_db()
+            ended_at = utc_now()
+            for run_id in run_ids:
+                db.execute(
+                    """
+                    UPDATE competition_runs
+                    SET status = 'crashed', ended_at = ?, updated_at = ?
+                    WHERE id = ? AND status != 'completed'
+                    """,
+                    (ended_at, ended_at, run_id),
+                )
+                try:
+                    _log_event(
+                        db,
+                        competition_run_id=run_id,
+                        level="error",
+                        message="Competition coordinator crashed.",
+                        details={
+                            "ctf_id": ctf_id,
+                            "error": str(exc),
+                            "error_type": type(exc).__name__,
+                        },
+                    )
+                except Exception:
+                    logger.exception(
+                        "[competition] failed to record coordinator crash for run_id=%d",
+                        run_id,
+                    )
+            db.commit()
+            capture_exception(
+                exc,
+                tags={"action": "competition.coordinator", "ctf_id": ctf_id},
+                context={"run_ids": run_ids},
+            )
+
+    def _handle_rerun_future_done(
+        self,
+        challenge_run_id: int,
+        competition_run_id: int,
+        future: concurrent.futures.Future[None],
+    ) -> None:
+        if future.cancelled():
+            logger.warning(
+                "[competition] challenge rerun future was cancelled for challenge_run_id=%d",
+                challenge_run_id,
+            )
+            return
+        exc = future.exception()
+        if exc is None:
+            logger.info(
+                "[competition] challenge rerun future completed for challenge_run_id=%d",
+                challenge_run_id,
+            )
+            return
+
+        logger.error(
+            "[competition] challenge rerun future crashed for challenge_run_id=%d: %s",
+            challenge_run_id,
+            exc,
+            exc_info=(type(exc), exc, exc.__traceback__),
+        )
+        with self.app.app_context():
+            db = get_db()
+            ended_at = utc_now()
+            db.execute(
+                """
+                UPDATE challenge_runs
+                SET status = 'crashed',
+                    ended_at = ?,
+                    error_message = ?,
+                    updated_at = ?
+                WHERE id = ?
+                """,
+                (ended_at, str(exc), ended_at, challenge_run_id),
+            )
+            try:
+                _log_event(
+                    db,
+                    competition_run_id=competition_run_id,
+                    challenge_run_id=challenge_run_id,
+                    level="error",
+                    message="Challenge rerun worker crashed.",
+                    details={"error": str(exc), "error_type": type(exc).__name__},
+                )
+            except Exception:
+                logger.exception(
+                    "[competition] failed to record rerun crash for challenge_run_id=%d",
+                    challenge_run_id,
+                )
+            _refresh_run_totals(db, competition_run_id)
+            capture_exception(
+                exc,
+                tags={
+                    "action": "challenge_run.rerun.worker",
+                    "challenge_run_id": challenge_run_id,
+                    "competition_run_id": competition_run_id,
+                },
             )
 
     def _configured_parallel_limit(self) -> int:
